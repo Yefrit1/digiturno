@@ -31,7 +31,6 @@ class AlertaTurno(QLabel):
         self.anim.setKeyValueAt(0.2, 1.0)
         self.anim.setKeyValueAt(0.8, 1.0)
         self.anim.setEndValue(0.0)
-
         self.hide()
 
     def show_box(self):
@@ -71,15 +70,12 @@ class Digiturno(QMainWindow):
         self.setCentralWidget(self.cWidget)
         self.cWidget.setObjectName("MainBackground")
         self.cWidget.setStyleSheet("QWidget#MainBackground {background-color: #EFE3C2;}")
-
         # Main layout
         mainLayout = QVBoxLayout(self.cWidget)
         mainLayout.setContentsMargins(0, 0, 0, 0)
-
         # Header layout
         headerLayout = QHBoxLayout()
         headerLayout.setContentsMargins(20, 20, 20, 20)
-
         # Logo
         labelLogo = QLabel()
         pixmapLogo = QPixmap("logoCoohem.png")  # Replace with your logo path
@@ -87,7 +83,6 @@ class Digiturno(QMainWindow):
         headerLayout.addSpacing(20)
         headerLayout.addWidget(labelLogo)
         headerLayout.addStretch()
-
         # Clock
         self.clockLabel = QLabel()
         self.clockLabel.setStyleSheet("""
@@ -96,18 +91,15 @@ class Digiturno(QMainWindow):
         """)
         headerLayout.addWidget(self.clockLabel)
         mainLayout.addLayout(headerLayout)
-
         # Content frame
         content_frame = BackgroundFrame()
         mainLayout.addWidget(content_frame, stretch=1)
-
         # Ticket grid layout
         self.gridLayout = QGridLayout(content_frame)
         self.gridLayout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.gridLayout.setHorizontalSpacing(5)
         self.gridLayout.setVerticalSpacing(5)
         self.gridLayout.setContentsMargins(5, 5, 5, 5)
-
         # Headers
         self.add_header("Atendiendo", 1, 0)
         spanLabel1 = QLabel("")
@@ -123,11 +115,9 @@ class Digiturno(QMainWindow):
         self.add_header("Asesor 5", 0, 7)
         self.add_header("Cartera", 0, 8)
         self.add_header("Cobranza", 0, 9)
-
         # Turn display box
         self.alertaTurno = AlertaTurno(self)
-        self.positionOverlayBox()
-
+        self.position_turn_alert()
         # Clock timer
         self.timeUpdateTimer = QTimer(self)
         self.timeUpdateTimer.timeout.connect(self.update_clock)
@@ -141,7 +131,6 @@ class Digiturno(QMainWindow):
     def run_server(self):
         HOST = '0.0.0.0'
         PORT = 47529
-
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -161,36 +150,40 @@ class Digiturno(QMainWindow):
 
     def handle_command(self, command):
         print(f"Handling command: {command}")  # Debug
+        # Handle command for next turn
         if command.startswith('NEXT_'):
             caja = command.split('_')[1]
             print(f"Calling next turn for {caja}")  # Debug
             self.siguiente_turno(caja)
+        # Handle command for new ticket
         elif command.startswith('NEWTICKET_'):
             _, cliente_id, afiliado, servicio = command.split('_')
-            self.handle_new_ticket(cliente_id, afiliado == '1', servicio)
+            self.handle_new_turn(cliente_id, afiliado == '1', servicio)
     
-    def siguiente_turno(self, caja):
-        if self.queue[caja]:
-            siguiente_ticket = self.queue[caja].pop(0)
-            self.atendiendo[caja] = siguiente_ticket
-            print(f"Atendiendo el turno {caja}-{siguiente_ticket}")  # Debug
-            self.actualizar_display(caja)
-            self.mostrar_turno(caja, siguiente_ticket)
-
+    def siguiente_turno(self, service):
+        if self.queue[service]:
+            nextTurn = self.queue[service].pop(0)
+            self.atendiendo[service] = nextTurn
+            print(f"Atendiendo el turno {service}-{nextTurn}")  # Debug
+            self.actualizar_display(service)
+            self.mostrar_turno(service, nextTurn)
+            # Updates current turn status to "atendido" in DB
             self.cursor.execute('''
                 UPDATE turnos SET estado = 'atendido', llamado = datetime('now')
                 WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
-                                ''', (caja, siguiente_ticket))
+                                ''', (service, nextTurn))
             self.conn.commit()
         else:
-            self.atendiendo[caja] = None
-            self.actualizar_display(caja)
-            print(f"No hay turnos en espera para la caja {caja}")  # Debug
+            self.atendiendo[service] = None
+            self.actualizar_display(service)
+            print(f"No hay turnos en espera para la caja {service}")  # Debug
     
+    # Loads pending turn from DB if created today
     def init_display(self):
         for servicio in self.queue:
             self.actualizar_display(servicio, init_mode=True)
 
+    # 
     def actualizar_display(self, caja, init_mode=False):
         # For debugging:
         print(f"Actualizando display de la caja {caja}") 
@@ -200,10 +193,8 @@ class Digiturno(QMainWindow):
                 item = self.gridLayout.itemAtPosition(r, c)
                 if item and item.widget():
                     print(f"Row {r}, Col {c}: {item.widget().text()}")
-        
-        # Remove current ticket being attended
         col = ord(caja.upper()) - ord('A') + 1
-
+        # Calls in next turn to attend
         if not init_mode:
             itemToRemove = self.gridLayout.itemAtPosition(1, col)
             if itemToRemove:
@@ -219,52 +210,49 @@ class Digiturno(QMainWindow):
                 ticket = QLabel(f"{caja}-{self.atendiendo[caja]}")
                 self.style_label(ticket, True)
                 self.gridLayout.addWidget(ticket, 1, col)
-        
         # Remove all waiting tickets
         for row in range(3, self.gridLayout.columnCount()):
             if item:= self.gridLayout.itemAtPosition(row, col):
                 item.widget().deleteLater()
-        
         # Add waiting tickets
         for idx, ticket_num in enumerate(self.queue[caja]):
             ticket = QLabel(f"{caja}-{ticket_num}")
             self.style_label(ticket, False)
             self.gridLayout.addWidget(ticket, 3+idx, col)
-        
-        # Print grid layout after update
+        # Print grid layout after update for debugging
         print(f"Grid layout after update:")
         for r in range(self.gridLayout.rowCount()):
             for c in range(self.gridLayout.columnCount()):
                 item = self.gridLayout.itemAtPosition(r, c)
                 if item and item.widget():
-                    print(f"Row {r}, Col {c}: {item.widget().text()}") # Debug
+                    print(f"Row {r}, Col {c}: {item.widget().text()}")
     
-    def mostrar_turno(self, station, nextTicket):
-        #self.alertaTurno.setText(turno)
-        stType = ""
-        match station:
-            case "A": stType = "Caja 1"
-            case "B": stType = "Caja 2"
-            case "C": stType = "Asesor 1"
-            case "D": stType = "Asesor 2"
-            case "E": stType = "Asesor 3"
-            case "F": stType = "Asesor 4"
-            case "G": stType = "Asesor 5"
-            case "H": stType = "Cobranza"
-            case "I": stType = "Cartera"
+    # Shows turn alert
+    def mostrar_turno(self, turnPrefix, turnNumber):
+        service = ""
+        match turnPrefix:
+            case "A": service = "Caja 1"
+            case "B": service = "Caja 2"
+            case "C": service = "Asesor 1"
+            case "D": service = "Asesor 2"
+            case "E": service = "Asesor 3"
+            case "F": service = "Asesor 4"
+            case "G": service = "Asesor 5"
+            case "H": service = "Cobranza"
+            case "I": service = "Cartera"
         self.alertaTurno.setText(f"""
             <div style='text-align: center;'>
-                <span style='font-size: 250px; font-weight: bold;'>{station}-{nextTicket}</span><br>
-                <span style='font-size: 80px;'>{stType}</span>
+                <span style='font-size: 250px; font-weight: bold;'>{turnPrefix}-{turnNumber}</span><br>
+                <span style='font-size: 80px;'>{service}</span>
             </div>
                                  """)
         self.alertaTurno.show_box()
         self.alertaTurno.anim.finished.connect(self.alertaTurno.hide_box)
         self.alertaTurno.anim.start()
 
+    # Sets style for turn labels
     def style_label(self, label, atendiendo):
-        label.setAutoFillBackground(True)  # Crucial for background rendering
-
+        label.setAutoFillBackground(True)  # Crucial for background rendering, whatever that means
         if atendiendo:
             label.setStyleSheet(f"""
                 QLabel {{
@@ -301,6 +289,7 @@ class Digiturno(QMainWindow):
                 """)
         label.setAlignment(Qt.AlignCenter)
     
+    # Styles and adds header labels to the grid
     def add_header(self, text, row, col):
         label = QLabel(text)
         label.setStyleSheet(f"""
@@ -318,16 +307,19 @@ class Digiturno(QMainWindow):
         label.setAlignment(Qt.AlignCenter)
         self.gridLayout.addWidget(label, row, col)
 
+    # repositions turn alert when resizing
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.positionOverlayBox()
+        self.position_turn_alert()
 
-    def positionOverlayBox(self):
+    # Positions turn alert on the middle
+    def position_turn_alert(self):
         self.alertaTurno.move(
             (self.width() - self.alertaTurno.width()) // 2,
             (self.height() - self.alertaTurno.height()) // 2
         )
-        
+    
+    # Formats clock and keeps it on time
     def update_clock(self):
         currentTime = datetime.now().strftime("%H:%M")
         if int(datetime.now().strftime("%H")) >= 12:
@@ -336,11 +328,11 @@ class Digiturno(QMainWindow):
             currentTime += " a.m."
         self.clockLabel.setText(currentTime)
     
+    # Initializes DB
     def init_db(self):
         self.conn = sqlite3.connect('digiturno.db')
         self.cursor = self.conn.cursor()
         self.cursor.execute("PRAGMA foreign_keys = ON")
-
         # Tabla de usuarios
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS clientes (
@@ -361,10 +353,9 @@ class Digiturno(QMainWindow):
                 llamado DATETIME,
                 FOREIGN KEY(cliente_id) REFERENCES clientes(id)
             ) ''')
-
         for service in self.queue:
             self.queue[service].clear()
-
+        # Load all pending turn from DB to queue
         self.cursor.execute('''
             SELECT servicio, numero
             FROM turnos
@@ -372,14 +363,12 @@ class Digiturno(QMainWindow):
             AND DATE(creado) = DATE('now')
             ORDER BY creado
                             ''')
-        
-        # Load all pending turn from DB to queue
         for servicio, numero in self.cursor.fetchall():
             self.queue[servicio].append(numero)
-
         self.conn.commit()
     
-    def handle_new_ticket(self, cliente_id, afiliado, servicio):
+
+    def handle_new_turn(self, cliente_id, afiliado, servicio):
         fechaHoy = datetime.now().strftime("%Y-%m-%d")
         try:
             # Registrar/verificar usuario
@@ -387,28 +376,24 @@ class Digiturno(QMainWindow):
                 INSERT OR IGNORE INTO clientes (identificacion, afiliado)
                 VALUES (?, ?)
             ''', (cliente_id, afiliado))
-            
             # Obtener número del siguiente turno
             self.cursor.execute('''
                 SELECT MAX(numero) FROM turnos
                 WHERE servicio = ? AND DATE(creado) = ?
                                 ''', (servicio, fechaHoy))
-            
             result = self.cursor.fetchone()[0]
             ultNum = int(result) if result is not None else 0
             nuevoNum = ultNum + 1
             print(f"DEBUG: Service {servicio} - Last: {ultNum} → New: {nuevoNum}") #Debug
-
-            # Crear turno
+            # Insert turn to DB
             self.cursor.execute('''
                 INSERT INTO turnos (cliente_id, servicio, numero, estado, creado)
                 VALUES (
                     (SELECT id FROM clientes WHERE identificacion = ?),
                     ?, ?, 'pendiente', datetime('now'))''', (cliente_id, servicio, nuevoNum))
-            
             self.conn.commit()
+            # Add turn to queue and grid
             self.queue[servicio].append(nuevoNum)
-
             col = ord(servicio.upper()) - ord('A') + 1
             ticket = QLabel(f"{servicio}-{nuevoNum}")
             self.style_label(ticket, True)
