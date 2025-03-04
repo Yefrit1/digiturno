@@ -9,13 +9,30 @@ class AlertaTurno(QLabel):
         super().__init__("Turno: 0", parent)
         self.setAlignment(Qt.AlignCenter)
         self.setStyleSheet("""
-            background-color: #6FDE42;
-            font-size: 100px;
+            background: qlineargradient(
+                x1:0.5, y1:0, x2:0.5, y2:1,
+                stop:0 #85A947, stop:1 #3E7B27
+            );
+            font-size: 150px;
             font-weight: bold;
             color: white;
+            border: 5px dashed white;
             border-radius: 30px;
         """)
-        self.setFixedSize(500, 250)
+        self.setFixedSize(500, 350)
+        # Opacity property
+        self.opacityP = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.opacityP)
+        self.opacityP.setOpacity(1.0)
+        # Animation for pulsating effect
+        self.anim = QPropertyAnimation(self.opacityP, b"opacity")
+        self.anim.setLoopCount(5)
+        self.anim.setDuration(1500)
+        self.anim.setStartValue(0.0)
+        self.anim.setKeyValueAt(0.2, 1.0)
+        self.anim.setKeyValueAt(0.8, 1.0)
+        self.anim.setEndValue(0.0)
+
         self.hide()
 
     def show_box(self):
@@ -23,16 +40,15 @@ class AlertaTurno(QLabel):
 
     def hide_box(self):
         self.hide()
+        try:
+            self.anim.finished.disconnect()
+        except:
+            pass
 
 class BackgroundFrame(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        #self.setStyleSheet("""
-        #    BackgroundFrame {
-        #        background-color: rgba(240, 240, 240, 50);
-        #    }
-        #""") # Semitransparent white background
 
 class Digiturno(QMainWindow):
     command_received = pyqtSignal(str)
@@ -112,10 +128,6 @@ class Digiturno(QMainWindow):
         self.alertaTurno = AlertaTurno(self)
         self.positionOverlayBox()
 
-        # Animation timer
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_animation)
-
         # Clock timer
         self.timeUpdateTimer = QTimer(self)
         self.timeUpdateTimer.timeout.connect(self.update_clock)
@@ -163,7 +175,7 @@ class Digiturno(QMainWindow):
             self.atendiendo[caja] = siguiente_ticket
             print(f"Atendiendo el turno {caja}-{siguiente_ticket}")  # Debug
             self.actualizar_display(caja)
-            self.mostrar_turno(f"{caja}-{siguiente_ticket}")
+            self.mostrar_turno(caja, siguiente_ticket)
 
             self.cursor.execute('''
                 UPDATE turnos SET estado = 'atendido', llamado = datetime('now')
@@ -227,10 +239,28 @@ class Digiturno(QMainWindow):
                 if item and item.widget():
                     print(f"Row {r}, Col {c}: {item.widget().text()}") # Debug
     
-    def mostrar_turno(self, turno):
-        self.alertaTurno.setText(turno)
-        self.animation_step = 0
-        self.timer.start(800)
+    def mostrar_turno(self, caja, siguiente_ticket):
+        #self.alertaTurno.setText(turno)
+        tipoCaja = ""
+        match caja:
+            case "A": tipoCaja = "Caja 1"
+            case "B": tipoCaja = "Caja 2"
+            case "C": tipoCaja = "Asesor 1"
+            case "D": tipoCaja = "Asesor 2"
+            case "E": tipoCaja = "Asesor 3"
+            case "F": tipoCaja = "Asesor 4"
+            case "G": tipoCaja = "Asesor 5"
+            case "H": tipoCaja = "Cobranza"
+            case "I": tipoCaja = "Cartera"
+        self.alertaTurno.setText(f"""
+            <div style='text-align: center;'>
+                <span style='font-size: 150px; font-weight: bold;'>{caja}-{siguiente_ticket}</span><br>
+                <span style='font-size: 40px;'>{tipoCaja}</span>
+            </div>
+                                 """)
+        self.alertaTurno.show_box()
+        self.alertaTurno.anim.finished.connect(self.alertaTurno.hide_box)
+        self.alertaTurno.anim.start()
 
     def style_label(self, label, atendiendo):
         label.setAutoFillBackground(True)  # Crucial for background rendering
@@ -316,14 +346,6 @@ class Digiturno(QMainWindow):
             (self.width() - self.alertaTurno.width()) // 2,
             (self.height() - self.alertaTurno.height()) // 2
         )
-
-    def update_animation(self):
-        if self.animation_step < 10:
-            self.alertaTurno.setVisible(self.animation_step % 2 == 0)
-            self.animation_step += 1
-        else:
-            self.timer.stop()
-            self.alertaTurno.hide()
         
     def update_clock(self):
         currentTime = datetime.now().strftime("%H:%M")
