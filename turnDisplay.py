@@ -78,8 +78,11 @@ class Digiturno(QMainWindow):
         headerLayout.setContentsMargins(20, 20, 20, 20)
         # Logo
         labelLogo = QLabel()
-        pixmapLogo = QPixmap("logoCoohem.png")  # Replace with your logo path
+        pixmapLogo = QPixmap("logoCoohem.png")
         labelLogo.setPixmap(pixmapLogo)
+        logoShadow = QGraphicsDropShadowEffect(labelLogo, blurRadius=15)
+        logoShadow.setOffset(5, 5)
+        labelLogo.setGraphicsEffect(logoShadow)
         headerLayout.addSpacing(20)
         headerLayout.addWidget(labelLogo)
         headerLayout.addStretch()
@@ -89,6 +92,9 @@ class Digiturno(QMainWindow):
             font-size: 60px;
             color: #002E08;
         """)
+        clockShadow = QGraphicsDropShadowEffect(self.clockLabel, blurRadius=15)
+        clockShadow.setOffset(5, 5)
+        self.clockLabel.setGraphicsEffect(clockShadow)
         headerLayout.addWidget(self.clockLabel)
         mainLayout.addLayout(headerLayout)
         # Content frame
@@ -288,6 +294,9 @@ class Digiturno(QMainWindow):
                 }}
                 """)
         label.setAlignment(Qt.AlignCenter)
+        labelShadow = QGraphicsDropShadowEffect(label, blurRadius=5)
+        labelShadow.setOffset(3,3)
+        label.setGraphicsEffect(labelShadow)
     
     # Styles and adds header labels to the grid
     def add_header(self, text, row, col):

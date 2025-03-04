@@ -1,4 +1,4 @@
-from test import Digiturno
+from turnDisplay import Digiturno
 import sys, sqlite3
 from PyQt5.QtWidgets import QApplication
 
@@ -8,14 +8,14 @@ def test_db():
     window = Digiturno()
     
     # Simulate 3 tickets
-    window.handle_new_ticket("ID111", True, "C")
-    window.handle_new_ticket("ID222", False, "A")
-    window.handle_new_ticket("ID333", True, "H")
-    window.handle_new_ticket("ID343", True, "B")
-    window.handle_new_ticket("ID353", True, "F")
-    window.handle_new_ticket("ID363", False, "I")
-    window.handle_new_ticket("ID373", True, "A")
-    window.handle_new_ticket("ID383", False, "D")
+    window.handle_new_turn("ID111", True, "C")
+    window.handle_new_turn("ID222", False, "A")
+    window.handle_new_turn("ID333", True, "H")
+    window.handle_new_turn("ID343", True, "B")
+    window.handle_new_turn("ID353", True, "F")
+    window.handle_new_turn("ID363", False, "I")
+    window.handle_new_turn("ID373", True, "A")
+    window.handle_new_turn("ID383", False, "D")
     
     # Verify database
     conn = sqlite3.connect('digiturno.db')
@@ -31,3 +31,5 @@ def test_db():
     
     conn.close()
     app.quit()
+
+test_db()
