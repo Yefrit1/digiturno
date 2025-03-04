@@ -13,13 +13,12 @@ class AlertaTurno(QLabel):
                 x1:0.5, y1:0, x2:0.5, y2:1,
                 stop:0 #85A947, stop:1 #3E7B27
             );
-            font-size: 150px;
             font-weight: bold;
             color: white;
-            border: 5px dashed white;
+            border: 3px solid #3E7B27;
             border-radius: 30px;
         """)
-        self.setFixedSize(500, 350)
+        self.setFixedSize(700, 500)
         # Opacity property
         self.opacityP = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self.opacityP)
@@ -68,12 +67,13 @@ class Digiturno(QMainWindow):
 
     def init_ui(self):
         # Central widget setup
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
-        self.set_background("ño")
+        self.cWidget = QWidget()
+        self.setCentralWidget(self.cWidget)
+        self.cWidget.setObjectName("MainBackground")
+        self.cWidget.setStyleSheet("QWidget#MainBackground {background-color: #EFE3C2;}")
 
         # Main layout
-        mainLayout = QVBoxLayout(self.central_widget)
+        mainLayout = QVBoxLayout(self.cWidget)
         mainLayout.setContentsMargins(0, 0, 0, 0)
 
         # Header layout
@@ -239,23 +239,23 @@ class Digiturno(QMainWindow):
                 if item and item.widget():
                     print(f"Row {r}, Col {c}: {item.widget().text()}") # Debug
     
-    def mostrar_turno(self, caja, siguiente_ticket):
+    def mostrar_turno(self, station, nextTicket):
         #self.alertaTurno.setText(turno)
-        tipoCaja = ""
-        match caja:
-            case "A": tipoCaja = "Caja 1"
-            case "B": tipoCaja = "Caja 2"
-            case "C": tipoCaja = "Asesor 1"
-            case "D": tipoCaja = "Asesor 2"
-            case "E": tipoCaja = "Asesor 3"
-            case "F": tipoCaja = "Asesor 4"
-            case "G": tipoCaja = "Asesor 5"
-            case "H": tipoCaja = "Cobranza"
-            case "I": tipoCaja = "Cartera"
+        stType = ""
+        match station:
+            case "A": stType = "Caja 1"
+            case "B": stType = "Caja 2"
+            case "C": stType = "Asesor 1"
+            case "D": stType = "Asesor 2"
+            case "E": stType = "Asesor 3"
+            case "F": stType = "Asesor 4"
+            case "G": stType = "Asesor 5"
+            case "H": stType = "Cobranza"
+            case "I": stType = "Cartera"
         self.alertaTurno.setText(f"""
             <div style='text-align: center;'>
-                <span style='font-size: 150px; font-weight: bold;'>{caja}-{siguiente_ticket}</span><br>
-                <span style='font-size: 40px;'>{tipoCaja}</span>
+                <span style='font-size: 250px; font-weight: bold;'>{station}-{nextTicket}</span><br>
+                <span style='font-size: 80px;'>{stType}</span>
             </div>
                                  """)
         self.alertaTurno.show_box()
@@ -317,25 +317,6 @@ class Digiturno(QMainWindow):
             """)
         label.setAlignment(Qt.AlignCenter)
         self.gridLayout.addWidget(label, row, col)
-
-    def set_background(self, image_path):
-        self.central_widget.setObjectName("MainBackground")
-        try:
-            test = QPixmap(image_path)
-            if test.isNull():
-                raise Exception("Invalid image file/path")
-            style = f"""
-                QWidget#MainBackground {{
-                    background-image: url({image_path});
-                    background-position: center;
-                    background-repeat: no-repeat;
-                    background-attachment: fixed;
-                }}
-            """
-            self.central_widget.setStyleSheet(style)
-        except Exception as e:
-            print(f"Background error: {e}")
-            self.central_widget.setStyleSheet("QWidget#MainBackground {background-color: #EFE3C2;}")
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
