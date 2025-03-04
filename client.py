@@ -171,3 +171,8 @@ class StaffClient(QWidget):
                 print("Could not connect to server")
             except IOError as e:
                 print(f"Error: {e}")
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    client = StaffClient()
+    sys.exit(app.exec_())
