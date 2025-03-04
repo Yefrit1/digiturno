@@ -31,5 +31,3 @@ def test_db():
     
     conn.close()
     app.quit()
-
-test_db()
