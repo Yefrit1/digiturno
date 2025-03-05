@@ -207,7 +207,8 @@ class Digiturno(QMainWindow):
                 print(f"Item to remove: {itemToRemove.widget().text()}")  # Debug
                 if widget := itemToRemove.widget():
                     widget.deleteLater()
-                    widget.graphicsEffect().setEnabled(False) # Disables shadow effect to prevent lingering
+                    widget.setGraphicsEffect(None) # Removes shadow effect to prevent lingering
+                    #widget.graphicsEffect().setEnabled(False) Use this instead of the line above if it presents any issues
                 self.gridLayout.removeItem(itemToRemove)
             else: # Use this block to show feedback when the queue is empty
                 print("No item to remove (station free)")  # Debug
@@ -221,7 +222,7 @@ class Digiturno(QMainWindow):
         for row in range(3, self.gridLayout.columnCount()):
             if item:= self.gridLayout.itemAtPosition(row, col):
                 item.widget().deleteLater()
-                item.widget().graphicsEffect().setEnabled(False) # Disables shadow effect to prevent lingering
+                item.widget().setGraphicsEffect(None) # Removes shadow effect to prevent lingering
         # Add waiting tickets
         for idx, ticket_num in enumerate(self.queue[caja]):
             ticket = QLabel(f"{caja}-{ticket_num}")
