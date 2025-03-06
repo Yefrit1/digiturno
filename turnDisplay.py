@@ -54,7 +54,7 @@ class Digiturno(QMainWindow):
         super().__init__()
         self.setWindowTitle("Digiturno")
         self.queue = {'A': [], 'B': [], 'C': [], 'D': [], 'E': [], 'F': [], 'G': [], 'H': [], 'I': []}
-        self.atendiendo = {'A': [], 'B': [], 'C': [], 'D': [], 'E': [], 'F': [], 'G': [], 'H': [], 'I': []}
+        self.attending = {'A': [], 'B': [], 'C': [], 'D': [], 'E': [], 'F': [], 'G': [], 'H': [], 'I': []}
 
         self.init_ui()
         self.init_db()
@@ -158,21 +158,25 @@ class Digiturno(QMainWindow):
         print(f"Handling command: {command}")  # Debug
         # Handle command for next turn
         if command.startswith('NEXT_'):
-            caja = command.split('_')[1]
-            print(f"Calling next turn for {caja}")  # Debug
-            self.siguiente_turno(caja)
+            service = command.split('_')[1]
+            print(f"Calling next turn for {service}")  # Debug
+            self.next_turn(service)
+        elif command.startswith('CANCEL_'):
+            service = command.split('_')[1]
+            self.cancel_turn(service)
+            print(f"Canceling current turn in {service}") # Debug
         # Handle command for new ticket
         elif command.startswith('NEWTICKET_'):
             _, cliente_id, afiliado, servicio = command.split('_')
             self.handle_new_turn(cliente_id, afiliado == '1', servicio)
     
-    def siguiente_turno(self, service):
+    def next_turn(self, service):
         if self.queue[service]:
             nextTurn = self.queue[service].pop(0)
-            self.atendiendo[service] = nextTurn
+            self.attending[service] = nextTurn
             print(f"Atendiendo el turno {service}-{nextTurn}")  # Debug
-            self.actualizar_display(service)
-            self.mostrar_turno(service, nextTurn)
+            self.update_display(service)
+            self.show_alert(service, nextTurn)
             # Updates current turn status to "atendido" in DB
             self.cursor.execute('''
                 UPDATE turnos SET estado = 'atendido', llamado = datetime('now')
@@ -180,17 +184,17 @@ class Digiturno(QMainWindow):
                                 ''', (service, nextTurn))
             self.conn.commit()
         else:
-            self.atendiendo[service] = None
-            self.actualizar_display(service)
+            self.attending[service] = None
+            self.update_display(service)
             print(f"No hay turnos en espera para la caja {service}")  # Debug
     
     # Loads pending turn from DB if created today
     def init_display(self):
         for servicio in self.queue:
-            self.actualizar_display(servicio, init_mode=True)
+            self.update_display(servicio, init_mode=True)
 
     # 
-    def actualizar_display(self, caja, init_mode=False):
+    def update_display(self, caja, init_mode=False):
         # For debugging:
         print(f"Actualizando display de la caja {caja}") 
         print(f"Grid layout before update:")
@@ -214,8 +218,8 @@ class Digiturno(QMainWindow):
                 print("No item to remove (station free)")  # Debug
             
             # Add new ticket being attended
-            if self.atendiendo[caja]:
-                ticket = QLabel(f"{caja}-{self.atendiendo[caja]}")
+            if self.attending[caja]:
+                ticket = QLabel(f"{caja}-{self.attending[caja]}")
                 self.style_label(ticket, True)
                 self.gridLayout.addWidget(ticket, 1, col)
         # Remove all waiting tickets
@@ -236,8 +240,25 @@ class Digiturno(QMainWindow):
                 if item and item.widget():
                     print(f"Row {r}, Col {c}: {item.widget().text()}")
     
+    # Cancels attending turn
+    def cancel_turn(self, service):
+        col = ord(service.upper()) - ord('A') + 1
+        if self.attending[service]:
+            turn = self.attending[service]
+            self.attending[service] = None
+            self.cursor.execute('''
+                UPDATE turnos SET estado = 'cancelado'
+                WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
+                                ''', (service, turn))
+            self.conn.commit()
+            item = self.gridLayout.itemAtPosition(1, col)
+            item.widget().deleteLater()
+            item.widget().setGraphicsEffect(None)
+            print(f"Canceled turn in {service}")
+        else: print("No turns to cancel.")
+
     # Shows turn alert
-    def mostrar_turno(self, turnPrefix, turnNumber):
+    def show_alert(self, turnPrefix, turnNumber):
         service = ""
         match turnPrefix:
             case "A": service = "Caja 1"
