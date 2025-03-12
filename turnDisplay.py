@@ -1,4 +1,4 @@
-import sys, traceback, sqlite3, socket, threading
+import sys, traceback, sqlite3, socket, threading, random
 from datetime import datetime
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
@@ -56,6 +56,8 @@ class Digiturno(QMainWindow):
         self.queue = {'A': [], 'B': [], 'C': [], 'D': [], 'E': [], 'F': [], 'G': [], 'H': [], 'I': []}
         self.attending = {'A': [], 'B': [], 'C': [], 'D': [], 'E': [], 'F': [], 'G': [], 'H': [], 'I': []}
         self.station = {'A': [], 'B': [], 'C': [], 'D': [], 'E': [], 'F': [], 'G': [], 'H': [], 'I': []}
+        self.stationAttended = {'A': 0, 'B': 0, 'C': 0, 'D': 0, 'E': 0, 'F': 0, 'G': 0, 'H': 0, 'I': 0}
+        self.stationCanceled = {'A': 0, 'B': 0, 'C': 0, 'D': 0, 'E': 0, 'F': 0, 'G': 0, 'H': 0, 'I': 0}
 
         self.init_ui()
         self.init_db()
@@ -139,7 +141,11 @@ class Digiturno(QMainWindow):
         # Placeholder button for simulating new turns
         self.buttonNew = QPushButton("Nuevo turno", self)
         self.waitHeader.addWidget(self.buttonNew)
-        self.buttonNew.clicked.connect(lambda: self.handle_new_turn("ID111", True, "C"))
+        self.buttonNew.clicked.connect(lambda: self.handle_new_turn(
+            f"CC{random.randint(100000000, 999999999)}",  # Random client ID like ID123
+            random.choice([True, False]),     # Random afiliado status
+            chr(random.randint(65, 73))       # Random service letter A-I
+            ))
         # Turn display box
         self.turnAlert = TurnAlert(self)
         self.position_turn_alert()
@@ -196,28 +202,31 @@ class Digiturno(QMainWindow):
     def handle_new_turn(self, cliente_id, afiliado, servicio):
         fechaHoy = datetime.now().strftime("%Y-%m-%d")
         try:
-            # Registrar/verificar usuario
+            # Register/verify user
             self.cursor.execute('''
                 INSERT OR IGNORE INTO clientes (identificacion, afiliado)
                 VALUES (?, ?)
             ''', (cliente_id, afiliado))
-            # Obtener número del siguiente turno
+            # Get next turn number
             self.cursor.execute('''
                 SELECT MAX(numero) FROM turnos
                 WHERE servicio = ? AND DATE(creado) = ?
                                 ''', (servicio, fechaHoy))
             result = self.cursor.fetchone()[0]
-            ultNum = int(result) if result is not None else 0
-            nuevoNum = ultNum + 1
+            lastNum = int(result) if result is not None else 0
+            newNum = lastNum + 1
             # Insert turn to DB
             self.cursor.execute('''
                 INSERT INTO turnos (cliente_id, servicio, numero, estado, creado)
                 VALUES (
                     (SELECT id FROM clientes WHERE identificacion = ?),
-                    ?, ?, 'pendiente', datetime('now'))''', (cliente_id, servicio, nuevoNum))
+                    ?, ?, 'pendiente', datetime('now'))''', (cliente_id, servicio, newNum))
             self.conn.commit()
             # Add turn to queue and grid
-            self.queue[servicio].append(nuevoNum)
+            self.queue[servicio].append(newNum)
+            newTurn = (servicio, newNum)
+            self.orderedTurns.append(newTurn)
+            print(f"Ordered turns: {self.orderedTurns}")
             self.update_waiting()
 
         except Exception as e:
@@ -225,7 +234,6 @@ class Digiturno(QMainWindow):
             self.conn.rollback()
     
     def next_turn(self, service):
-        
         if self.queue[service]:
             nextTurn = self.queue[service].pop(0)
             self.attending[service] = nextTurn
@@ -235,6 +243,9 @@ class Digiturno(QMainWindow):
                 WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
                                 ''', (service, nextTurn))
             self.conn.commit()
+            print(f"Ordered turns b4 remove attempt: {self.orderedTurns}")
+            self.orderedTurns.remove((service, nextTurn))
+            print(f"Ordered turns after remove attempt: {self.orderedTurns}")
             self.update_attending(service)
             self.show_alert(service, nextTurn)
         else:
@@ -242,8 +253,18 @@ class Digiturno(QMainWindow):
             self.update_attending(service)
             print(f"No hay turnos en espera para la caja {service}")  # Debug
     
-    # Loads pending turn from DB if created today
+    # Loads pending turns from DB if created today
     def init_display(self):
+        # Sorts turns by creation order
+        self.cursor.execute('''
+            SELECT servicio, numero
+            FROM turnos
+            WHERE estado = 'pendiente'
+            AND DATE(creado) = DATE('now')
+            ORDER BY creado
+                            ''')
+        self.orderedTurns = self.cursor.fetchall()
+        print(f"Ordered turns: {self.orderedTurns}")
         self.update_waiting()
 
     # Updates displayed turns in attending
@@ -288,16 +309,6 @@ class Digiturno(QMainWindow):
     # Updates displayed turns in waiting
     def update_waiting(self):
         self.clear_waitLabels()
-        # Sort turns by call order
-        self.cursor.execute('''
-            SELECT servicio, numero
-            FROM turnos
-            WHERE estado = 'pendiente'
-            AND DATE(creado) = DATE('now')
-            ORDER BY creado
-                            ''')
-        self.orderedTurns = self.cursor.fetchall()
-        print(self.orderedTurns)
         # Add all waiting turns to layout
         counter = 0
         for servicio, numero in self.orderedTurns:
@@ -362,8 +373,6 @@ class Digiturno(QMainWindow):
         self.turnAlert.show_box()
         self.turnAlert.anim.finished.connect(self.turnAlert.hide_box)
         self.turnAlert.anim.start()
-
-    
 
     # Sets style for turn labels
     def style_label(self, label, attending):
