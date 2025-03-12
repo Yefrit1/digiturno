@@ -224,8 +224,7 @@ class Digiturno(QMainWindow):
             self.conn.commit()
             # Add turn to queue and grid
             self.queue[servicio].append(newNum)
-            newTurn = (servicio, newNum)
-            self.orderedTurns.append(newTurn)
+            self.orderedTurns.append((servicio, newNum))
             print(f"Ordered turns: {self.orderedTurns}")
             self.update_waiting()
 
