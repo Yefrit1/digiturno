@@ -55,6 +55,7 @@ class Digiturno(QMainWindow):
         self.setWindowTitle("Digiturno")
         self.queue = {'A': [], 'B': [], 'C': [], 'D': [], 'E': [], 'F': [], 'G': [], 'H': [], 'I': []}
         self.attending = {'A': [], 'B': [], 'C': [], 'D': [], 'E': [], 'F': [], 'G': [], 'H': [], 'I': []}
+        self.station = {'A': [], 'B': [], 'C': [], 'D': [], 'E': [], 'F': [], 'G': [], 'H': [], 'I': []}
 
         self.init_ui()
         self.init_db()
@@ -171,22 +172,21 @@ class Digiturno(QMainWindow):
                         print(f"Connected by {addr}")  # Debug
                         data = conn.recv(1024).decode('utf-8').strip()
                         if data:
-                            #print(f"Received command: {data}")  # Debug
+                            print(f"Received command: {data}")  # Debug
                             self.command_received.emit(data)
         except Exception as e:
             print(f"Server error: {e}")
 
     def handle_command(self, command):
-        #print(f"Handling command: {command}")  # Debug
         # Handle command for next turn
         if command.startswith('NEXT_'):
             service = command.split('_')[1]
-            #print(f"Calling next turn for {service}")  # Debug
+            print(f"Calling next turn for {service}")  # Debug
             self.next_turn(service)
         # Handle command for cancel turn
         elif command.startswith('CANCEL_'):
             service = command.split('_')[1]
-            #print(f"Canceling current turn in {service}") # Debug
+            print(f"Canceling current turn in {service}") # Debug
             self.cancel_turn(service)
         # Handle command for new ticket
         elif command.startswith('NEWTICKET_'):
@@ -225,10 +225,10 @@ class Digiturno(QMainWindow):
             self.conn.rollback()
     
     def next_turn(self, service):
+        
         if self.queue[service]:
             nextTurn = self.queue[service].pop(0)
             self.attending[service] = nextTurn
-            #print(f"Atendiendo el turno {service}-{nextTurn}")  # Debug
             # Updates current turn status to "atendido" in DB
             self.cursor.execute('''
                 UPDATE turnos SET estado = 'atendido', llamado = datetime('now')
@@ -240,7 +240,7 @@ class Digiturno(QMainWindow):
         else:
             self.attending[service] = None
             self.update_attending(service)
-            #print(f"No hay turnos en espera para la caja {service}")  # Debug
+            print(f"No hay turnos en espera para la caja {service}")  # Debug
     
     # Loads pending turn from DB if created today
     def init_display(self):
@@ -255,14 +255,13 @@ class Digiturno(QMainWindow):
             if col < 5:
                 itemToRemove = self.gridLayout1.itemAtPosition(1, col)
                 if itemToRemove:
-                    #print(f"Item to remove: {itemToRemove.widget().text()}")  # Debug
                     widget = itemToRemove.widget()
                     widget.deleteLater()
                     widget.setGraphicsEffect(None) # Removes shadow effect to prevent lingering
                     #widget.graphicsEffect().setEnabled(False) Use this instead of the line above if it presents any issues
                     self.gridLayout1.removeItem(itemToRemove)
                 else: # Use this block to show feedback when the station is empty
-                    print("No item to remove (station free)")  # Debug
+                    pass
                 if self.attending[service]:
                     ticket = QLabel(f"{service}-{self.attending[service]}")
                     self.style_label(ticket, True)
@@ -272,14 +271,13 @@ class Digiturno(QMainWindow):
                 col -= 5
                 itemToRemove = self.gridLayout2.itemAtPosition(1, col)
                 if itemToRemove:
-                    #print(f"Item to remove: {itemToRemove.widget().text()}")  # Debug
                     widget = itemToRemove.widget()
                     widget.deleteLater()
                     widget.setGraphicsEffect(None) # Removes shadow effect to prevent lingering
                     #widget.graphicsEffect().setEnabled(False) Use this instead of the line above if it presents any issues
                     self.gridLayout2.removeItem(itemToRemove)
                 else: # Use this block to show feedback when the station is empty
-                    print("No item to remove (station free)")  # Debug
+                    pass
                 # Add new ticket being attended
                 if self.attending[service]:
                     ticket = QLabel(f"{service}-{self.attending[service]}")
@@ -290,7 +288,6 @@ class Digiturno(QMainWindow):
     # Updates displayed turns in waiting
     def update_waiting(self):
         self.clear_waitLabels()
-        print(f"Connection state: {self.conn}")
         # Sort turns by call order
         self.cursor.execute('''
             SELECT servicio, numero
@@ -299,13 +296,17 @@ class Digiturno(QMainWindow):
             AND DATE(creado) = DATE('now')
             ORDER BY creado
                             ''')
-        orderedTurns = self.cursor.fetchall()
-        print(f"Turns fetched: {orderedTurns}")
+        self.orderedTurns = self.cursor.fetchall()
+        print(self.orderedTurns)
         # Add all waiting turns to layout
-        for servicio, numero in orderedTurns:
-            turn = QLabel(f"{servicio}-{numero}")
-            self.style_label(turn, False)
-            self.waitLabels.addWidget(turn)
+        counter = 0
+        for servicio, numero in self.orderedTurns:
+            if counter < 7:
+                turn = QLabel(f"{servicio}-{numero}")
+                self.style_label(turn, False)
+                self.waitLabels.addWidget(turn)
+            else: print("No more space for waiting labels")
+            counter += 1
     
     # Removes widgets from waitLabels
     def clear_waitLabels(self):
@@ -317,7 +318,7 @@ class Digiturno(QMainWindow):
 
     # Cancels attending turn
     def cancel_turn(self, service):
-        col = ord(service.upper()) - ord('A') + 1
+        col = ord(service.upper()) - ord('A')
         if self.attending[service]:
             turn = self.attending[service]
             self.attending[service] = None
@@ -326,10 +327,17 @@ class Digiturno(QMainWindow):
                 WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
                                 ''', (service, turn))
             self.conn.commit()
-            item = self.gridLayout1.itemAtPosition(1, col)
-            item.widget().deleteLater()
-            item.widget().setGraphicsEffect(None)
-            #print(f"Canceled turn in {service}")
+            if col < 5:
+                item = self.gridLayout1.itemAtPosition(1, col)
+                item.widget().deleteLater()
+                item.widget().setGraphicsEffect(None)
+                print(f"Canceled turn in {service}")
+            elif col > 4:
+                col -= 5
+                item = self.gridLayout2.itemAtPosition(1, col)
+                item.widget().deleteLater()
+                item.widget().setGraphicsEffect(None)
+                print(f"Canceled turn in {service}")
         else: print("No turns to cancel.")
 
     # Shows turn alert
@@ -354,6 +362,8 @@ class Digiturno(QMainWindow):
         self.turnAlert.show_box()
         self.turnAlert.anim.finished.connect(self.turnAlert.hide_box)
         self.turnAlert.anim.start()
+
+    
 
     # Sets style for turn labels
     def style_label(self, label, attending):
@@ -459,13 +469,39 @@ class Digiturno(QMainWindow):
             CREATE TABLE IF NOT EXISTS turnos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 cliente_id INTEGER NOT NULL,
+                estacion_id INTEGER,
                 servicio TEXT NOT NULL,
                 numero INTEGER NOT NULL,
                 estado TEXT NOT NULL, -- 'pendiente', 'atendido', 'cancelado'
                 creado DATETIME,
                 llamado DATETIME,
-                FOREIGN KEY(cliente_id) REFERENCES clientes(id)
-            ) ''')
+                FOREIGN KEY(cliente_id) REFERENCES clientes(id),
+                FOREIGN KEY(estacion_id) REFERENCES estaciones(id)
+            )''')
+        # Tabla de estaciones
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS estaciones (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL,
+                servicio TEXT NOT NULL,
+                empleado TEXT,
+                activo BOOLEAN DEFAULT 1,
+                ocupado BOOLEAN DEFAULT 0,
+                atendidos INTEGER,
+                cancelados INTEGER,
+                atendidos_hoy INTEGER DEFAULT 0,
+                cancelados_hoy INTEGER DEFAULT 0
+            )''')
+        # Tabla de empleados
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS empleados (
+                id INTEGER PRIMARY KEY,
+                nombre TEXT NOT NULL,
+                estacion_id INTEGER,
+                fecha_inicio DATE,
+                fecha_fin DATE,
+                FOREIGN KEY(estacion_id) REFERENCES estaciones(id)
+            )''')
         for service in self.queue:
             self.queue[service].clear()
         # Load all pending turn from DB to queue
@@ -475,7 +511,7 @@ class Digiturno(QMainWindow):
             WHERE estado = 'pendiente'
             AND DATE(creado) = DATE('now')
             ORDER BY creado
-                            ''')
+        ''')
         for servicio, numero in self.cursor.fetchall():
             self.queue[servicio].append(numero)
         self.conn.commit()
