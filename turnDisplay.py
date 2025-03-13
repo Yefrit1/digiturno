@@ -53,10 +53,10 @@ class Digiturno(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Digiturno")
-        self.queue = {'H': [], 'I': [], 'J': [], 'K': []}
-        self.attending = {'A': [], 'B': [], 'C': [], 'D': [], 'E': [], 'F': [], 'G': [], 'H': [], 'I': []}
-        self.attendedToday = {'A': 0, 'B': 0, 'C': 0, 'D': 0, 'E': 0, 'F': 0, 'G': 0, 'H': 0, 'I': 0}
-        self.canceledToday = {'A': 0, 'B': 0, 'C': 0, 'D': 0, 'E': 0, 'F': 0, 'G': 0, 'H': 0, 'I': 0}
+        self.queue = {'P': [], 'Q': [], 'R': [], 'S': []}
+        self.attending = {'1': [], '2': [], '3': [], '4': [], '5': [], '6': [], '7': [], '8': [], '9': []}
+        self.attendedToday = {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7': 0, '8': 0, '9': 0}
+        self.canceledToday = {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7': 0, '8': 0, '9': 0}
 
         self.init_ui()
         self.init_db()
@@ -141,9 +141,9 @@ class Digiturno(QMainWindow):
         self.buttonNew = QPushButton("Nuevo turno", self)
         self.waitHeader.addWidget(self.buttonNew)
         self.buttonNew.clicked.connect(lambda: self.new_turn(
-            f"CC{random.randint(100000000, 999999999)}",  # Random client ID
+            f"CC{random.randint(100000000, 999999999)}",  # Random user ID
             random.choice([True, False]),     # Random afiliado status
-            chr(random.randint(72, 75))       # Random service letter H-K
+            chr(random.randint(80, 83))       # Random service letter H-K
             ))
         # Turn display box
         self.turnAlert = TurnAlert(self)
@@ -187,12 +187,12 @@ class Digiturno(QMainWindow):
         if command.startswith('NEXT_'):
             station = command.split('_')[1]
             print(f"Calling next turn for {station}")  # Debug
-            self.next_turn(station)
+            self.next_turn(int(station))
         # Handle command for cancel turn
         elif command.startswith('CANCEL_'):
             station = command.split('_')[1]
             print(f"Canceling current turn in {station}") # Debug
-            self.cancel_turn(station)
+            self.cancel_turn(int(station))
         # Handle command for new ticket
         elif command.startswith('NEWTICKET_'):
             _, cliente_id, afiliado, servicio = command.split('_')
@@ -253,9 +253,15 @@ class Digiturno(QMainWindow):
             self.update_waiting()
             print(f"No hay turnos en espera para el servicio {service}")
     
-    # Loads pending turns from DB if created today
+    # Loads data from DB if created today
     def init_display(self):
-        # Sorts turns by creation order
+        # Get attended and cancelled turns today
+        self.cursor.execute('''
+            SELECT nombre, atendidos_hoy, cancelados_hoy
+            FROM estaciones
+                            ''')
+        print(self.cursor.fetchall())
+        # Sort turns by creation order
         self.cursor.execute('''
             SELECT servicio, numero
             FROM turnos
@@ -269,7 +275,7 @@ class Digiturno(QMainWindow):
 
     # Updates displayed turns in attending
     def update_attending(self, station, init_mode=False):
-        col = ord(station.upper()) - ord('A')
+        col = station - 1
         # Calls in next turn to attend
         if not init_mode:
             # First 5 stations
@@ -328,7 +334,7 @@ class Digiturno(QMainWindow):
 
     # Cancels attending turn
     def cancel_turn(self, station):
-        col = ord(station.upper()) - ord('A')
+        col = station - 1
         service = self.match_service(station)
         if self.attending[station]:
             turn = self.attending[station]
@@ -351,27 +357,28 @@ class Digiturno(QMainWindow):
                 print(f"Canceled turn in {station}")
         else: print("No turns to cancel.")
 
+    # Takes station and returns service
     def match_service(self, station):
         match station:
-            case 'A' | 'B': return 'H'
-            case 'C' | 'D' | 'E' | 'F' | 'G': return 'I'
-            case 'H': return 'J'
-            case 'I': return 'K'
+            case 1 | 2: return 'P'
+            case 3 | 4 | 5 | 6 | 7: return 'Q'
+            case 8: return 'R'
+            case 9: return 'S'
 
     # Shows turn alert
     def show_alert(self, station, turnNumber):
         stationText = ""
         service = self.match_service(station)
         match station:
-            case "A": stationText = "Caja 1"
-            case "B": stationText = "Caja 2"
-            case "C": stationText = "Asesor 1"
-            case "D": stationText = "Asesor 2"
-            case "E": stationText = "Asesor 3"
-            case "F": stationText = "Asesor 4"
-            case "G": stationText = "Asesor 5"
-            case "H": stationText = "Cartera"
-            case "I": stationText = "Cobranza"
+            case 1: stationText = "Caja 1"
+            case 2: stationText = "Caja 2"
+            case 3: stationText = "Asesor 1"
+            case 4: stationText = "Asesor 2"
+            case 5: stationText = "Asesor 3"
+            case 6: stationText = "Asesor 4"
+            case 7: stationText = "Asesor 5"
+            case 8: stationText = "Cartera"
+            case 9: stationText = "Cobranza"
         self.turnAlert.setText(f"""
             <div style='text-align: center;'>
                 <span style='font-size: 250px; font-weight: bold;'>{service}-{turnNumber}</span><br>
@@ -501,7 +508,6 @@ class Digiturno(QMainWindow):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 nombre TEXT NOT NULL,
                 servicio TEXT NOT NULL,
-                empleado TEXT,
                 activo BOOLEAN DEFAULT 1,
                 ocupado BOOLEAN DEFAULT 0,
                 atendidos INTEGER,
@@ -512,13 +518,28 @@ class Digiturno(QMainWindow):
         # Tabla de empleados
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS empleados (
-                id INTEGER PRIMARY KEY,
-                nombre TEXT NOT NULL,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT,
+                identificacion TEXT UNIQUE NOT NULL,
                 estacion_id INTEGER,
                 fecha_inicio DATE,
                 fecha_fin DATE,
                 FOREIGN KEY(estacion_id) REFERENCES estaciones(id)
             )''')
+        # Create estaciones
+        self.cursor.execute('''
+                INSERT OR IGNORE INTO estaciones (id, nombre, servicio)
+                VALUES (1, 'caja1', 'P'), (2, 'caja2', 'P'), (3, 'asesor1', 'Q'),
+                    (4, 'asesor2', 'Q'), (5, 'asesor3', 'Q'), (6, 'asesor4', 'Q'), (7, 'asesor5', 'Q'),
+                    (8, 'cartera', 'R'), (9, 'cobranza', 'S')
+            ''')
+        # Create empleados
+        self.cursor.execute('''
+                INSERT OR IGNORE INTO empleados (identificacion, nombre, estacion_id)
+                VALUES ('CC2132', 'empleado1', '1'), ('CC3215', 'empleado2', '2'), ('CC4896', 'empleado3', '3'),
+                ('CC9525', 'empleado4', '4'), ('CC1962', 'empleado5', '5'), ('CC1052', 'empleado6', '6'),
+                ('CC1524', 'empleado7', '7'), ('CC8513', 'empleado8', '8'), ('CC4198', 'empleado9', '9')
+            ''')
         for service in self.queue:
             self.queue[service].clear()
         # Load all pending turn from DB to queue

@@ -38,9 +38,9 @@ class StaffClient(QWidget):
 
         gridLayout = QGridLayout()
 
-        tipoDeUsuario = [("Caja 1", "A"), ("Caja 2", "B"), ("Asesor 1", "C"),
-                         ("Asesor 2", "D"), ("Asesor 3", "E"), ("Asesor 4", "F"),
-                         ("Asesor 5", "G"), ("Cartera", "H"), ("Cobranza", "I")]
+        tipoDeUsuario = [("Caja 1", "1"), ("Caja 2", "2"), ("Asesor 1", "3"),
+                         ("Asesor 2", "4"), ("Asesor 3", "5"), ("Asesor 4", "6"),
+                         ("Asesor 5", "7"), ("Cartera", "8"), ("Cobranza", "9")]
         row, col = 0, 0
 
         for displayName, code in tipoDeUsuario:
@@ -141,9 +141,9 @@ class StaffClient(QWidget):
     def select_user(self, userCode):
         self.usuario = userCode
         nombreEstacion = {
-            "A": "Caja1", "B": "Caja2", "C": "Asesor1",
-            "D": "Asesor2", "E": "Asesor3", "F": "Asesor4",
-            "G": "Asesor5", "H": "Cartera", "I": "Cobranza"
+            "1": "Caja1", "2": "Caja2", "3": "Asesor1",
+            "4": "Asesor2", "5": "Asesor3", "6": "Asesor4",
+            "7": "Asesor5", "8": "Cartera", "9": "Cobranza"
         }
         self.estacionActual.setText(f"{nombreEstacion.get(userCode, userCode)}")
 
