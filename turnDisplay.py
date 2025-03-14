@@ -241,6 +241,10 @@ class Digiturno(QMainWindow):
                 UPDATE turnos SET estado = 'atendido', llamado = datetime('now')
                 WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
                                 ''', (service, nextTurn))
+            self.cursor.execute('''
+                UPDATE estaciones SET atendidos_hoy = atendidos_hoy + 1
+                WHERE id = ?
+                                ''', (station,))
             self.conn.commit()
             self.orderedTurns.remove((service, nextTurn))
             print(f"Ordered turns: {self.orderedTurns}")
@@ -257,10 +261,11 @@ class Digiturno(QMainWindow):
     def init_display(self):
         # Get attended and cancelled turns today
         self.cursor.execute('''
-            SELECT nombre, atendidos_hoy, cancelados_hoy
+            SELECT id, atendidos_hoy
             FROM estaciones
                             ''')
-        print(self.cursor.fetchall())
+        self.attendedToday = self.cursor.fetchall()
+        print(self.attendedToday)
         # Sort turns by creation order
         self.cursor.execute('''
             SELECT servicio, numero
@@ -343,6 +348,11 @@ class Digiturno(QMainWindow):
                 UPDATE turnos SET estado = 'cancelado'
                 WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
                                 ''', (service, turn))
+            self.cursor.execute('''
+                UPDATE estaciones SET atendidos_hoy = atendidos_hoy - 1,
+                    cancelados_hoy = cancelados_hoy + 1
+                WHERE id = ?
+                                ''', (station,))
             self.conn.commit()
             if col < 5:
                 item = self.gridLayout1.itemAtPosition(1, col)
@@ -526,6 +536,13 @@ class Digiturno(QMainWindow):
                 fecha_fin DATE,
                 FOREIGN KEY(estacion_id) REFERENCES estaciones(id)
             )''')
+        # Tabla de control de fecha
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS control_fecha (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                last_reset DATE NOT NULL
+            )
+                            ''')
         # Create estaciones
         self.cursor.execute('''
                 INSERT OR IGNORE INTO estaciones (id, nombre, servicio)
@@ -540,6 +557,27 @@ class Digiturno(QMainWindow):
                 ('CC9525', 'empleado4', '4'), ('CC1962', 'empleado5', '5'), ('CC1052', 'empleado6', '6'),
                 ('CC1524', 'empleado7', '7'), ('CC8513', 'empleado8', '8'), ('CC4198', 'empleado9', '9')
             ''')
+        # Create control de fecha
+        self.cursor.execute('''
+            INSERT OR IGNORE INTO control_fecha (id, last_reset)
+            VALUES (1, '2000-01-01')
+                            ''')
+        # Check for daily reset
+        today = datetime.now().strftime("%Y-%m-%d")
+        self.cursor.execute('''
+            SELECT last_reset FROM control_fecha WHERE id = 1
+                            ''')
+        last_reset = self.cursor.fetchone()[0]
+        if last_reset != today:
+            self.cursor.execute('''
+                UPDATE estaciones
+                SET atendidos_hoy = 0, cancelados_hoy = 0
+                                ''')
+            self.cursor.execute('''
+                UPDATE control_fecha
+                SET last_reset = ?
+                WHERE id = 1
+                ''', (today,))
         for service in self.queue:
             self.queue[service].clear()
         # Load all pending turn from DB to queue
