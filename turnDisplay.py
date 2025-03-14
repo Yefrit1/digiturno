@@ -490,107 +490,116 @@ class Digiturno(QMainWindow):
         self.conn = sqlite3.connect('digiturno.db')
         self.cursor = self.conn.cursor()
         self.cursor.execute("PRAGMA foreign_keys = ON")
-        # Tabla de usuarios
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS clientes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                identificacion TEXT UNIQUE NOT NULL,
-                nombre TEXT,
-                afiliado BOOLEAN NOT NULL
-            )''')
-        # Tabla de turnos
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS turnos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                cliente_id INTEGER NOT NULL,
-                estacion_id INTEGER,
-                servicio TEXT NOT NULL,
-                numero INTEGER NOT NULL,
-                estado TEXT NOT NULL, -- 'pendiente', 'atendido', 'cancelado'
-                creado DATETIME,
-                llamado DATETIME,
-                FOREIGN KEY(cliente_id) REFERENCES clientes(id),
-                FOREIGN KEY(estacion_id) REFERENCES estaciones(id)
-            )''')
-        # Tabla de estaciones
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS estaciones (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nombre TEXT NOT NULL,
-                servicio TEXT NOT NULL,
-                activo BOOLEAN DEFAULT 1,
-                ocupado BOOLEAN DEFAULT 0,
-                atendidos INTEGER,
-                cancelados INTEGER,
-                atendidos_hoy INTEGER DEFAULT 0,
-                cancelados_hoy INTEGER DEFAULT 0
-            )''')
-        # Tabla de empleados
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS empleados (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                nombre TEXT,
-                identificacion TEXT UNIQUE NOT NULL,
-                estacion_id INTEGER,
-                fecha_inicio DATE,
-                fecha_fin DATE,
-                FOREIGN KEY(estacion_id) REFERENCES estaciones(id)
-            )''')
-        # Tabla de control de fecha
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS control_fecha (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                last_reset DATE NOT NULL
-            )
-                            ''')
-        # Create estaciones
-        self.cursor.execute('''
-                INSERT OR IGNORE INTO estaciones (id, nombre, servicio)
-                VALUES (1, 'caja1', 'P'), (2, 'caja2', 'P'), (3, 'asesor1', 'Q'),
-                    (4, 'asesor2', 'Q'), (5, 'asesor3', 'Q'), (6, 'asesor4', 'Q'), (7, 'asesor5', 'Q'),
-                    (8, 'cartera', 'R'), (9, 'cobranza', 'S')
-            ''')
-        # Create empleados
-        self.cursor.execute('''
-                INSERT OR IGNORE INTO empleados (identificacion, nombre, estacion_id)
-                VALUES ('CC2132', 'empleado1', '1'), ('CC3215', 'empleado2', '2'), ('CC4896', 'empleado3', '3'),
-                ('CC9525', 'empleado4', '4'), ('CC1962', 'empleado5', '5'), ('CC1052', 'empleado6', '6'),
-                ('CC1524', 'empleado7', '7'), ('CC8513', 'empleado8', '8'), ('CC4198', 'empleado9', '9')
-            ''')
-        # Create control de fecha
-        self.cursor.execute('''
-            INSERT OR IGNORE INTO control_fecha (id, last_reset)
-            VALUES (1, '2000-01-01')
-                            ''')
-        # Check for daily reset
-        today = datetime.now().strftime("%Y-%m-%d")
-        self.cursor.execute('''
-            SELECT last_reset FROM control_fecha WHERE id = 1
-                            ''')
-        last_reset = self.cursor.fetchone()[0]
-        if last_reset != today:
+        try:
+            # Tabla de usuarios
             self.cursor.execute('''
-                UPDATE estaciones
-                SET atendidos_hoy = 0, cancelados_hoy = 0
+                CREATE TABLE IF NOT EXISTS clientes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    identificacion TEXT UNIQUE NOT NULL,
+                    nombre TEXT,
+                    afiliado BOOLEAN NOT NULL
+                )''')
+            # Tabla de turnos
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS turnos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    cliente_id INTEGER NOT NULL,
+                    estacion_id INTEGER,
+                    servicio TEXT NOT NULL,
+                    numero INTEGER NOT NULL,
+                    estado TEXT NOT NULL, -- 'pendiente', 'atendido', 'cancelado'
+                    creado DATETIME,
+                    llamado DATETIME,
+                    FOREIGN KEY(cliente_id) REFERENCES clientes(id),
+                    FOREIGN KEY(estacion_id) REFERENCES estaciones(id)
+                )''')
+            # Tabla de estaciones
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS estaciones (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nombre TEXT NOT NULL,
+                    servicio TEXT NOT NULL,
+                    activo BOOLEAN DEFAULT 1,
+                    ocupado BOOLEAN DEFAULT 0,
+                    atendidos INTEGER,
+                    cancelados INTEGER,
+                    atendidos_hoy INTEGER DEFAULT 0,
+                    cancelados_hoy INTEGER DEFAULT 0
+                )''')
+            # Tabla de empleados
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS empleados (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nombre TEXT,
+                    identificacion TEXT UNIQUE NOT NULL,
+                    estacion_id INTEGER,
+                    fecha_inicio DATE,
+                    fecha_fin DATE,
+                    FOREIGN KEY(estacion_id) REFERENCES estaciones(id)
+                )''')
+            # Tabla de control de fecha
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS control_fecha (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    last_reset DATE NOT NULL
+                )
                                 ''')
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error creating DB: {e}")
+            self.conn.rollback()
+        try:
+            # Create estaciones
             self.cursor.execute('''
-                UPDATE control_fecha
-                SET last_reset = ?
-                WHERE id = 1
-                ''', (today,))
-        for service in self.queue:
-            self.queue[service].clear()
-        # Load all pending turn from DB to queue
-        self.cursor.execute('''
-            SELECT servicio, numero
-            FROM turnos
-            WHERE estado = 'pendiente'
-            AND DATE(creado) = DATE('now')
-            ORDER BY creado
-        ''')
-        for servicio, numero in self.cursor.fetchall():
-            self.queue[servicio].append(numero)
-        self.conn.commit()
+                    INSERT OR IGNORE INTO estaciones (id, nombre, servicio)
+                    VALUES (1, 'caja1', 'P'), (2, 'caja2', 'P'), (3, 'asesor1', 'Q'),
+                        (4, 'asesor2', 'Q'), (5, 'asesor3', 'Q'), (6, 'asesor4', 'Q'), (7, 'asesor5', 'Q'),
+                        (8, 'cartera', 'R'), (9, 'cobranza', 'S')
+                ''')
+            # Create empleados
+            self.cursor.execute('''
+                    INSERT OR IGNORE INTO empleados (identificacion, nombre, estacion_id)
+                    VALUES ('CC2132', 'empleado1', '1'), ('CC3215', 'empleado2', '2'), ('CC4896', 'empleado3', '3'),
+                    ('CC9525', 'empleado4', '4'), ('CC1962', 'empleado5', '5'), ('CC1052', 'empleado6', '6'),
+                    ('CC1524', 'empleado7', '7'), ('CC8513', 'empleado8', '8'), ('CC4198', 'empleado9', '9')
+                ''')
+            # Create control de fecha
+            self.cursor.execute('''
+                INSERT OR IGNORE INTO control_fecha (id, last_reset)
+                VALUES (1, '2000-01-01')
+                                ''')
+            # Check for daily reset
+            today = datetime.now().strftime("%Y-%m-%d")
+            self.cursor.execute('''
+                SELECT last_reset FROM control_fecha WHERE id = 1
+                                ''')
+            last_reset = self.cursor.fetchone()[0]
+            if last_reset != today:
+                self.cursor.execute('''
+                    UPDATE estaciones
+                    SET atendidos_hoy = 0, cancelados_hoy = 0
+                                    ''')
+                self.cursor.execute('''
+                    UPDATE control_fecha
+                    SET last_reset = ?
+                    WHERE id = 1
+                    ''', (today,))
+            for service in self.queue:
+                self.queue[service].clear()
+            # Load all pending turn from DB to queue
+            self.cursor.execute('''
+                SELECT servicio, numero
+                FROM turnos
+                WHERE estado = 'pendiente'
+                AND DATE(creado) = DATE('now')
+                ORDER BY creado
+            ''')
+            for servicio, numero in self.cursor.fetchall():
+                self.queue[servicio].append(numero)
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error with init_db: {e}")
+            self.conn.rollback()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
