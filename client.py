@@ -54,17 +54,32 @@ class UserManagerDialog(QDialog):
         self.setup_ui()
 
     def setup_ui(self):
+        # Users table
         layout = QVBoxLayout()
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["Usuario", "Contraseña", "Estación", "Admin"])
-        
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.load_users()
-        
+
+        # Button group 1
+        self.buttonBox = QHBoxLayout()
         self.addUserButton = QPushButton("Añadir usuario")
+        self.modifyUsersButton = QPushButton("Modificar usuarios")
+        self.removeUsersButton = QPushButton("Eliminar usuarios")
         self.addUserButton.clicked.connect(lambda: AddUserDialog(self).exec_())
+        self.modifyUsersButton.clicked.connect(self.toggle_ui)
+        self.removeUsersButton.clicked.connect(self.toggle_ui)
+        self.buttonBox.addWidget(self.modifyUsersButton)
+        self.buttonBox.addWidget(self.addUserButton)
+        # Button group 2
+        self.cancelButton = QPushButton("Cancelar")
+        self.confirmButton = QPushButton("Confirmar")
+        self.cancelButton.clicked.connect(self.toggle_ui)
+        self.confirmButton.clicked.connect(self.confirm_changes)
+        # Add layouts
         layout.addWidget(self.table)
-        layout.addWidget(self.addUserButton)
+        layout.addLayout(self.buttonBox)
         self.setLayout(layout)
 
     def load_users(self):
@@ -78,6 +93,54 @@ class UserManagerDialog(QDialog):
             for col, data in enumerate(user):
                 self.table.setItem(row, col, QTableWidgetItem(str(data)))
         conn.close()
+
+    def confirm_changes(self):
+        conn = sqlite3.connect('client_users.db')
+        cursor = conn.cursor()
+        for row in range(self.table.rowCount()):
+            nombre = self.table.item(row, 0).text()
+            contrasena = self.table.item(row, 1).text()
+            estacion_id = self.table.item(row, 2).text()
+            is_admin = self.table.item(row, 3).text()
+            
+            cursor.execute('''
+                UPDATE usuarios
+                SET contrasena = ?, estacion_id = ?, is_admin = ?
+                WHERE nombre = ?
+            ''', (contrasena, estacion_id, is_admin, nombre))
+        
+        conn.commit()
+        conn.close()
+        self.toggle_ui()
+
+    # Swaps button groups in buttonBox, enables/disables table editing and loads table from DB
+    def toggle_ui(self):
+        if self.modifyUsersButton.isVisible():
+            # Remove current buttons
+            self.buttonBox.removeWidget(self.modifyUsersButton)
+            self.buttonBox.removeWidget(self.addUserButton)
+            self.buttonBox.removeWidget(self.removeUsersButton)
+            self.modifyUsersButton.setParent(None)
+            self.addUserButton.setParent(None)
+            self.removeUsersButton.setParent(None)
+            # Add other buttons
+            self.buttonBox.addWidget(self.cancelButton)
+            self.buttonBox.addWidget(self.confirmButton)
+            # Enable table editing
+            self.table.setEditTriggers(QTableWidget.AllEditTriggers)
+        else:
+            # Remove current buttons
+            self.buttonBox.removeWidget(self.cancelButton)
+            self.buttonBox.removeWidget(self.confirmButton)
+            self.cancelButton.setParent(None)
+            self.confirmButton.setParent(None)
+            # Add other buttons
+            self.buttonBox.addWidget(self.modifyUsersButton)
+            self.buttonBox.addWidget(self.addUserButton)
+            # Disable table editing
+            self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+            self.load_users()
+
 
 class AddUserDialog(QDialog):
     def __init__(self, parent=None):
@@ -124,7 +187,7 @@ class AddUserDialog(QDialog):
             return
         try:
             cursor.execute('''
-                INSERT OR IGNORE INTO usuarios 
+                INSERT OR IGNORE INTO usuarios
                 VALUES (?, ?, ?, ?)
                     ''', (self.unInput.text(), self.passInput.text(), self.stIdInput.text(), isAdminCheck))
             conn.commit()
@@ -137,6 +200,17 @@ class AddUserDialog(QDialog):
             QMessageBox.warning(self, "Error", f"{e}")
             conn.rollback()
         conn.close()
+
+class ModifyUserDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Modificar usuarios")
+        self.setup_ui()
+    
+    def setup_ui(self):
+        layout = QFormLayout()
+
+        self.setLayout(layout)
 
 class ConfigDialog(QDialog):
     def __init__(self, parent=None):
@@ -278,7 +352,7 @@ class StaffClient(QMainWindow):
             self.current_user = dialog.user_info
             #self.station_label.setText(f"Estación: {self.current_user['estacion_id']}")
             self.update_ui_state(True)
-        else: self.close()
+        elif not self.current_user: self.close()
 
     def logout(self):
         self.current_user = None
