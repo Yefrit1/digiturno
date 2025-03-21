@@ -16,6 +16,8 @@ class MainWindow(QMainWindow):
         self.stackedWidget = QStackedWidget()
         main_layout.addWidget(self.stackedWidget)
 
+        self.isAsc = False
+
 ####### Layout ENTRADA #######
         self.ent = QWidget()
         self.layoutEnt = QVBoxLayout(self.ent)
@@ -28,14 +30,12 @@ class MainWindow(QMainWindow):
 
         bienvenido = QLabel("Bienvenido")
         self.style_label(bienvenido, 5.5)
-
-        spacer1 = QLabel() # Spacing
         
         self.add_logo(self.entHbox1)
         self.entHbox1.addWidget(bienvenido)
-        self.entHbox1.addWidget(spacer1)
+        self.add_spacer(self.entHbox1)
         #
-        pregunta = QLabel("¿Eres asociado?")
+        pregunta = QLabel("¿Es asociado?")
         self.style_label(pregunta, 9)
         #
         self.entHbox2 = QHBoxLayout()
@@ -48,8 +48,8 @@ class MainWindow(QMainWindow):
         self.entSi.setFixedWidth(self.screen_width(20))
         self.style_button(self.entNo, 10, 30, 2)
         self.style_button(self.entSi, 10, 30, 2)
-        self.entNo.clicked.connect(lambda: self.stackedWidget.setCurrentIndex(2))
-        self.entSi.clicked.connect(lambda: self.stackedWidget.setCurrentIndex(1))
+        self.entNo.clicked.connect(self.go_to_ced)
+        self.entSi.clicked.connect(self.go_to_ced)
 
         self.entHbox2.addWidget(self.entNo)
         self.entHbox2.addWidget(self.entSi)
@@ -58,181 +58,172 @@ class MainWindow(QMainWindow):
         self.layoutEnt.addWidget(pregunta)
         self.layoutEnt.addLayout(self.entHbox2)
 
-####### Layout ASOCIADO #######
-        self.asc = QWidget()
-        self.layoutAsc = QVBoxLayout(self.asc)
-        self.layoutAsc.setAlignment(Qt.AlignTop)
+####### Layout CÉDULA #######
+        self.ced = QWidget()
+        self.layoutCed = QVBoxLayout(self.ced)
+        self.layoutCed.setAlignment(Qt.AlignTop)
         #
-        self.ascHbox1 = QHBoxLayout()
-        self.ascHbox1.setContentsMargins(0, 0, 0, self.screen_height(5))
+        self.cedHbox1 = QHBoxLayout()
+        self.cedHbox1.setContentsMargins(0, 0, 0, self.screen_height(5))
 
-        labelAscID = QLabel("Ingresa tu cédula")
-        self.style_label(labelAscID, 5)
+        labelCedula = QLabel("Ingrese su cédula")
+        self.style_label(labelCedula, 5)
 
-        spacer2 = QLabel() # Spacing
-
-        self.add_logo(self.ascHbox1)
-        self.ascHbox1.addWidget(labelAscID)
-        self.ascHbox1.addWidget(spacer2)
+        self.add_logo(self.cedHbox1)
+        self.cedHbox1.addWidget(labelCedula)
+        self.add_spacer(self.cedHbox1)
         #
-        self.ascHbox2 = QHBoxLayout()
-        self.ascHbox2.setAlignment(Qt.AlignCenter)
+        self.cedHbox2 = QHBoxLayout()
+        self.cedHbox2.setAlignment(Qt.AlignCenter)
 
-        self.ascId = QLineEdit()
-        self.ascId.setFixedWidth(self.screen_width(60))
-        self.style_line_edit(self.ascId, 8)
-        self.ascId.setReadOnly(True)
+        self.lineID = QLineEdit()
+        self.lineID.setFixedWidth(self.screen_width(60))
+        self.style_line_edit(self.lineID, 8)
+        self.lineID.setReadOnly(True)
 
-        self.ascHbox2.addWidget(self.ascId)
+        self.cedHbox2.addWidget(self.lineID)
         #
-        self.ascHbox3 = QHBoxLayout()
+        self.cedHbox3 = QHBoxLayout()
 
-        spacer3 = QLabel()
-
-        self.ascKpad = QGridLayout()
-        self.ascKpad.setAlignment(Qt.AlignCenter)
-        self.ascKpad.setSpacing(0)
-        aKpadButtons = [('7',0,0), ('8',0,1), ('9',0,2),
+        self.kpadLayout = QGridLayout()
+        self.kpadLayout.setAlignment(Qt.AlignCenter)
+        self.kpadLayout.setSpacing(0)
+        kpadButtons = [('7',0,0), ('8',0,1), ('9',0,2),
                         ('4',1,0), ('5',1,1), ('6',1,2),
                         ('1',2,0), ('2',2,1), ('3',2,2),
                         ('',3,0), ('0',3,1), ('',3,2)]
-        for text,row,col in aKpadButtons:
-            akButton = QPushButton(text)
-            akButton.setFixedWidth(self.screen_width(10))
-            self.style_button(akButton, 5, 15, 2)
-            akButton.clicked.connect(self.kpad_pressed)
-            self.ascKpad.addWidget(akButton, row, col)
+        for text,row,col in kpadButtons:
+            kpadButton = QPushButton(text)
+            kpadButton.setFixedWidth(self.screen_width(10))
+            self.style_button(kpadButton, 5, 15, 2)
+            kpadButton.clicked.connect(self.kpad_pressed)
+            self.kpadLayout.addWidget(kpadButton, row, col)
+
+        self.add_spacer(self.cedHbox3)
+        self.cedHbox3.addLayout(self.kpadLayout)
+        self.add_spacer(self.cedHbox3)
+        #
+        self.cedHbox4 = QHBoxLayout()
+        self.cedHbox4.setSpacing(0)
+
+        cedReturn = QPushButton(" Volver")
+        cedReturn.setFixedSize(self.screen_width(15), self.screen_height(11))
+        self.style_button(cedReturn, 3, 15, 2, "return.png",4)
+        cedReturn.clicked.connect(self.ced_return)
+
+        cedDel = QPushButton("Borrar")
+        cedDel.setFixedSize(self.screen_width(15), cedReturn.height())
+        self.style_button(cedDel, 3, 15, 2, "delete.png",5, True)
+        cedDel.clicked.connect(self.kpad_pressed)
+
+        nomOk = QPushButton("Confirmar")
+        nomOk.setFixedSize(self.screen_width(15), cedReturn.height())
+        self.style_button(nomOk, 2.3, 15, 2, "ok.png", 3.5)
+        nomOk.clicked.connect(self.confirm_ced)
+
+        self.cedHbox4.addWidget(cedReturn)
+        self.add_spacer(self.cedHbox4)
+        self.cedHbox4.addWidget(cedDel)
+        self.cedHbox4.addWidget(nomOk)
+        self.add_spacer(self.cedHbox4)
+        self.add_spacer(self.cedHbox4, cedReturn.width())
+        #
+        self.layoutCed.addLayout(self.cedHbox1)
+        self.layoutCed.addLayout(self.cedHbox2)
+        self.layoutCed.addLayout(self.cedHbox3)
+        self.layoutCed.addLayout(self.cedHbox4)
         
-        spacer4 = QLabel()
-
-        self.ascHbox3.addWidget(spacer3)
-        self.ascHbox3.addLayout(self.ascKpad)
-        self.ascHbox3.addWidget(spacer4)
-        #
-        self.ascHbox4 = QHBoxLayout()
-        self.ascHbox4.setSpacing(0)
-
-        ascReturn = QPushButton("Volver")
-        ascReturn.setFixedSize(self.screen_width(15), self.screen_height(11))
-        self.style_button(ascReturn, 3, 15, 2, "return.png",4)
-        ascReturn.clicked.connect(self.serv_volver)
-
-        spacer5 = QLabel()
-
-        ascDel = QPushButton("Borrar")
-        ascDel.setFixedSize(self.screen_width(15), ascReturn.height())
-        self.style_button(ascDel, 3, 15, 2, "delete.png",5)
-        ascDel.clicked.connect(self.kpad_delete)
-
-        ascOk = QPushButton("Confirmar")
-        ascOk.setFixedSize(self.screen_width(15), ascReturn.height())
-        self.style_button(ascOk, 2.3, 15, 2, "ok.png", 4)
-        ascOk.clicked.connect(lambda: self.stackedWidget.setCurrentIndex(3))
-
-        spacer6 = QLabel()
-        spacer7 = QLabel()
-        spacer7.setFixedWidth(ascReturn.width())
-
-        self.ascHbox4.addWidget(ascReturn)
-        self.ascHbox4.addWidget(spacer5)
-        self.ascHbox4.addWidget(ascDel)
-        self.ascHbox4.addWidget(ascOk)
-        self.ascHbox4.addWidget(spacer6)
-        self.ascHbox4.addWidget(spacer7)
-        #
-        self.layoutAsc.addLayout(self.ascHbox1)
-        self.layoutAsc.addLayout(self.ascHbox2)
-        self.layoutAsc.addLayout(self.ascHbox3)
-        self.layoutAsc.addLayout(self.ascHbox4)
+####### Layout NOMBRE (no asociado)
         
-        """
-####### Layout NO ASOCIADO #######
-        self.noAsc = QWidget()
-        self.layoutNoAsc = QVBoxLayout(self.noAsc)
-        self.layoutNoAsc.setAlignment(Qt.AlignTop)
+        self.nom = QWidget()
+        self.layoutNom = QVBoxLayout(self.nom)
+        self.layoutNom.setAlignment(Qt.AlignTop)
         #
-        self.noAscHbox1 = QHBoxLayout()
-        self.noAscHbox1.setContentsMargins(0, 0, 0, self.screen_height(5))
+        self.nomHbox1 = QHBoxLayout()
+        self.nomHbox1.setContentsMargins(0,0,0, self.screen_height(8))
 
-        labelNoAscID = QLabel("Ingresa tu cédula")
-        self.style_label(labelNoAscID, 5)
+        labelNombre = QLabel("Ingrese su nombre:")
+        self.style_label(labelNombre, 5)
 
-        spacer8 = QLabel() # Spacing
-
-        self.add_logo(self.noAscHbox1)
-        self.noAscHbox1.addWidget(labelNoAscID)
-        self.noAscHbox1.addWidget(spacer8)
+        self.add_logo(self.nomHbox1)
+        self.nomHbox1.addWidget(labelNombre)
+        self.add_spacer(self.nomHbox1)
         #
-        self.noAscHbox2 = QHBoxLayout()
-        self.noAscHbox2.setAlignment(Qt.AlignCenter)
+        self.nomHbox2 = QHBoxLayout()
+        self.nomHbox2.setAlignment(Qt.AlignCenter)
 
-        self.noAscId = QLineEdit()
-        self.noAscId.setFixedWidth(self.screen_width(60))
-        self.style_line_edit(self.noAscId, 8)
-        self.noAscId.setReadOnly(True)
+        self.lineNom = QLineEdit()
+        self.lineNom.setFixedWidth(self.screen_width(92))
+        self.style_line_edit(self.lineNom, 4.7)
+        self.lineNom.setReadOnly(True)
+        self.lineNom.textChanged.connect(self.capitalize_words)
 
-        self.noAscHbox2.addWidget(self.noAscId)
+        self.nomHbox2.addWidget(self.lineNom)
         #
-        self.noAscHbox3 = QHBoxLayout()
+        kboardWidget = QWidget()
+        kboardLayout = QVBoxLayout(kboardWidget)
+        kboardWidget.setLayout(kboardLayout)
+        kboardWidget.setStyleSheet("""
+            QWidget {
+                background-color: #3E7B27;
+                border-radius: 20px;
+                border: 2px solid white;
+            }
+        """)
 
-        spacer9 = QLabel()
+        keyboardRows = [
+            ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+            ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', 'Ñ'],
+            ['Z', 'X', 'C', 'V', 'B', 'N', 'M', 'Borrar'],
+            ['⎵']
+        ]
 
-        self.noAscKpad = QGridLayout()
-        self.noAscKpad.setAlignment(Qt.AlignCenter)
-        self.noAscKpad.setSpacing(0)
-        nKpadButtons = [('7',0,0), ('8',0,1), ('9',0,2),
-                        ('4',1,0), ('5',1,1), ('6',1,2),
-                        ('1',2,0), ('2',2,1), ('3',2,2),
-                        ('',3,0), ('0',3,1), ('',3,2)]
-        for text,row,col in nKpadButtons:
-            nkButton = QPushButton(text)
-            nkButton.setFixedWidth(self.screen_width(10))
-            self.style_button(nkButton, 5, 15, 2)
-            nkButton.clicked.connect(self.kpad_pressed)
-            self.noAscKpad.addWidget(nkButton, row, col)
+        for row in keyboardRows:
+            hbox = QHBoxLayout()
+            hbox.setAlignment(Qt.AlignCenter)
+            #hbox.setSpacing(0)
+            for key in row:
+                kboardButton = QPushButton(key)
+                if kboardButton.text()=="Borrar":
+                    self.style_button(kboardButton, 3, 15, 2, "delete.png", 5, True)
+                    kboardButton.setFixedSize(self.screen_width(15), cedReturn.height())
+                elif kboardButton.text()=="⎵":
+                    self.style_button(kboardButton, 5, 15, 2)
+                    kboardButton.setFixedSize(self.screen_width(40), cedReturn.height())
+                else:
+                    kboardButton.setFixedWidth(self.screen_width(9.3))
+                    self.style_button(kboardButton, 5, 15, 2)
+                kboardButton.clicked.connect(self.kboard_pressed)
+                hbox.addWidget(kboardButton)
+            kboardLayout.addLayout(hbox)
+        #
+        self.nomHbox3 = QHBoxLayout()
         
-        spacer10 = QLabel()
+        nomReturn = QPushButton(" Volver")
+        nomReturn.setFixedSize(self.screen_width(15), self.screen_height(11))
+        self.style_button(nomReturn, 3, 15, 2, "return.png",4)
+        nomReturn.clicked.connect(self.nom_return)
 
-        self.noAscHbox3.addWidget(spacer9)
-        self.noAscHbox3.addLayout(self.noAscKpad)
-        self.noAscHbox3.addWidget(spacer10)
+        nomLimpiar = QPushButton("Limpiar")
+        nomLimpiar.setFixedSize(self.screen_width(17), self.screen_height(11))
+        self.style_button(nomLimpiar, 3, 15, 2, "clear.png", 5, True)
+        nomLimpiar.clicked.connect(self.kboard_pressed)
+
+        nomOk = QPushButton(" Confirmar")
+        nomOk.setFixedSize(self.screen_width(20), self.screen_height(11))
+        self.style_button(nomOk, 3, 15, 2, "ok.png", 3.5)
+
+        self.nomHbox3.addWidget(nomReturn)
+        self.add_spacer(self.nomHbox3)
+        self.nomHbox3.addWidget(nomLimpiar)
+        self.nomHbox3.addWidget(nomOk)
+        self.add_spacer(self.nomHbox3)
+        self.add_spacer(self.nomHbox3, nomReturn.width())
         #
-        self.noAscHbox4 = QHBoxLayout()
-        self.noAscHbox4.setSpacing(0)
-
-        noAscReturn = QPushButton("Volver")
-        noAscReturn.setFixedSize(self.screen_width(15), self.screen_height(11))
-        self.style_button(noAscReturn, 3, 15, 2, "return.png",4)
-        noAscReturn.clicked.connect(self.serv_volver)
-
-        spacer11 = QLabel()
-
-        noAscDel = QPushButton("Borrar")
-        noAscDel.setFixedSize(self.screen_width(15), noAscReturn.height())
-        self.style_button(noAscDel, 3, 15, 2, "delete.png",5)
-        noAscDel.clicked.connect(self.kpad_delete)
-
-        noAscOk = QPushButton("Confirmar")
-        noAscOk.setFixedSize(self.screen_width(15), noAscReturn.height())
-        self.style_button(noAscOk, 2.3, 15, 2, "ok.png", 4)
-        noAscOk.clicked.connect(lambda: self.stackedWidget.setCurrentIndex(3))
-
-        spacer12 = QLabel()
-        spacer13 = QLabel()
-        spacer13.setFixedWidth(noAscReturn.width())
-
-        self.noAscHbox4.addWidget(noAscReturn)
-        self.noAscHbox4.addWidget(spacer11)
-        self.noAscHbox4.addWidget(noAscDel)
-        self.noAscHbox4.addWidget(noAscOk)
-        self.noAscHbox4.addWidget(spacer12)
-        self.noAscHbox4.addWidget(spacer13)
-        #
-        self.layoutNoAsc.addLayout(self.noAscHbox1)
-        self.layoutNoAsc.addLayout(self.noAscHbox2)
-        self.layoutNoAsc.addLayout(self.noAscHbox3)
-        self.layoutNoAsc.addLayout(self.noAscHbox4)
-        """
+        self.layoutNom.addLayout(self.nomHbox1)
+        self.layoutNom.addLayout(self.nomHbox2)
+        self.layoutNom.addWidget(kboardWidget)
+        self.layoutNom.addLayout(self.nomHbox3)
 
 ####### Layout SERVICIO #######
         self.serv = QWidget()
@@ -246,8 +237,8 @@ class MainWindow(QMainWindow):
 
 ####### Stack layouts #######
         self.stackedWidget.addWidget(self.ent)
-        self.stackedWidget.addWidget(self.asc)
-        #self.stackedWidget.addWidget(self.noAsc)
+        self.stackedWidget.addWidget(self.ced)
+        self.stackedWidget.addWidget(self.nom)
         self.stackedWidget.addWidget(self.serv)
 
         self.init_db()
@@ -255,28 +246,70 @@ class MainWindow(QMainWindow):
 
     # Called when a button from the keypad is pressed
     def kpad_pressed(self):
-        if self.stackedWidget.currentIndex() == 1:
-            button = self.sender()
-            current_number = self.ascId.text()
+        button = self.sender()
+        if button.text() == "Borrar":
+            self.lineID.setText(self.lineID.text()[:-1])
+        else:
+            current_number = self.lineID.text()
             new_number = current_number + button.text()
-            self.ascId.setText(new_number)
-        elif self.stackedWidget.currentIndex() == 2:
-            button = self.sender()
-            current_number = self.noAscId.text()
-            new_number = current_number + button.text()
-            self.noAscId.setText(new_number)
+            self.lineID.setText(new_number)
+    
+    def confirm_ced(self):
+        if self.isAsc:
+            self.stackedWidget.setCurrentIndex(3)
+        else: self.stackedWidget.setCurrentIndex(2)
+    
+    # Called when a button from the keyboard is pressed
+    def kboard_pressed(self):
+        button = self.sender()
+        current_text = self.lineNom.text()
+        if button.text() == "Borrar":
+            self.lineNom.setText(self.lineNom.text()[:-1])
+        elif button.text() == "Limpiar":
+            self.lineNom.setText("")
+            print("limpiar")
+        elif button.text() == "⎵":
+            if current_text != "" and current_text[-1] != " ":
+                new_text = current_text + " "
+                self.lineNom.setText(new_text)
+        else:
+            lowCased = chr(ord(button.text())+32)
+            new_text = current_text + lowCased
+            self.lineNom.setText(new_text)
+    
+    # Used to capitalize the first letter of each word
+    def capitalize_words(self):
+        text = self.lineNom.text()
+        if len(text) > 0:
+            # Split the text into words
+            words = text.split(' ')
+            # Capitalize the first letter of each word
+            capitalized_words = [word.capitalize() for word in words]
+            # Join the words back into a single string
+            capitalized_text = ' '.join(capitalized_words)
+            # Block signals to prevent recursive calls
+            self.lineNom.blockSignals(True)
+            # Set the capitalized text
+            self.lineNom.setText(capitalized_text)
+            # Unblock signals
+            self.lineNom.blockSignals(False)
 
-    def kpad_delete(self):
-        # For single digit deletion
-        if self.stackedWidget.currentIndex() == 1:
-            self.ascId.setText(self.ascId.text()[:-1])
-        elif self.stackedWidget.currentIndex() == 2:
-            self.noAscId.setText(self.noAscId.text()[:-1])
-        # For clearing the whole line, just setText to ""
-
-    def serv_volver(self):
+    def ced_return(self):
         self.stackedWidget.setCurrentIndex(0)
-        self.ascId.setText("")
+        self.lineID.setText("")
+    
+    def nom_return(self):
+        self.stackedWidget.setCurrentIndex(1)
+        self.lineNom.setText("")
+
+    def go_to_ced(self):
+        if self.sender().text() == "Sí":
+            self.isAsc = True
+        else: self.isAsc = False
+        self.stackedWidget.setCurrentIndex(1)
+
+    def go_to_nom(self):
+        self.stackedWidget.setCurrentIndex(2)
     
     # Sets stylesheet for a label
     def style_label(self, label, fontSize):
@@ -292,7 +325,7 @@ class MainWindow(QMainWindow):
         label.setAlignment(Qt.AlignCenter)
 
     # Sets stylesheet for a button
-    def style_button(self, button, fontSize, radius, border, img=None, imgSize=None):
+    def style_button(self, button, fontSize, radius, border, img=None, imgSize=None, red=False):
         styleSheet = f"""
             QPushButton {{
                 background: qlineargradient(
@@ -310,6 +343,21 @@ class MainWindow(QMainWindow):
                     stop:0 #A9DB55, stop:1 #85A947
                 )
             }}
+        """
+        if red:
+            styleSheet += """
+            QPushButton {
+                background: qlineargradient(
+                    x1:0.5, y1:0, x2:0.5, y2:1,
+                    stop:0 #CD5120, stop:1 #722506
+                );
+            }
+            QPushButton:pressed {
+                background: qlineargradient(
+                    x1:0.5, y1:0, x2:0.5, y2:1,
+                    stop:0 #FF7038, stop:1 #CD5120
+                )
+            }
         """
         if img:
             styleSheet += f"""
@@ -333,6 +381,14 @@ class MainWindow(QMainWindow):
             }}
         """)
         label.setAlignment(Qt.AlignCenter)
+
+    def add_spacer(self, layout, width=None, height=None):
+        label = QLabel()
+        if width:
+            label.setFixedWidth(width)
+        if height:
+            label.setFixedHeight(height)
+        layout.addWidget(label)
 
     # Adds a logo label
     def add_logo(self, layout):
