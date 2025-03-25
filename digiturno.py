@@ -1,4 +1,4 @@
-import sys, sqlite3
+import sys, sqlite3, socket, traceback
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
@@ -16,9 +16,27 @@ class MainWindow(QMainWindow):
         self.stackedWidget = QStackedWidget()
         main_layout.addWidget(self.stackedWidget)
 
+        self.db_path = "digiturno.db"
+        self.nombre = ""
+        self.cedula = ""
         self.isAsc = False
+        self.asociado = False
+        self.queue = {'AS': [0], 'CA': [0], 'CO': [0], 'CT': [0]}
+        self.host = '192.168.0.54'
+        self.port = 47529
 
-####### Layout ENTRADA #######
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT servicio, numero
+                FROM turnos
+                WHERE estado = 'pendiente' AND DATE(creado) = DATE('now')
+                ORDER BY creado
+            """)
+        for servicio, numero in cursor.fetchall():
+            self.queue[servicio].append(numero)
+
+####### Layout 0: ENTRADA #######
         self.ent = QWidget()
         self.layoutEnt = QVBoxLayout(self.ent)
         self.layoutEnt.setAlignment(Qt.AlignTop)
@@ -58,7 +76,7 @@ class MainWindow(QMainWindow):
         self.layoutEnt.addWidget(pregunta)
         self.layoutEnt.addLayout(self.entHbox2)
 
-####### Layout CÉDULA #######
+####### Layout 1: CÉDULA #######
         self.ced = QWidget()
         self.layoutCed = QVBoxLayout(self.ced)
         self.layoutCed.setAlignment(Qt.AlignTop)
@@ -119,7 +137,7 @@ class MainWindow(QMainWindow):
         nomOk = QPushButton("Confirmar")
         nomOk.setFixedSize(self.screen_width(15), cedReturn.height())
         self.style_button(nomOk, 2.3, 15, 2, "ok.png", 3.5)
-        nomOk.clicked.connect(self.confirm_ced)
+        nomOk.clicked.connect(self.ced_confirm)
 
         self.cedHbox4.addWidget(cedReturn)
         self.add_spacer(self.cedHbox4)
@@ -133,8 +151,7 @@ class MainWindow(QMainWindow):
         self.layoutCed.addLayout(self.cedHbox3)
         self.layoutCed.addLayout(self.cedHbox4)
         
-####### Layout NOMBRE (no asociado)
-        
+####### Layout 2: NOMBRE (no asociado) #######
         self.nom = QWidget()
         self.layoutNom = QVBoxLayout(self.nom)
         self.layoutNom.setAlignment(Qt.AlignTop)
@@ -142,7 +159,7 @@ class MainWindow(QMainWindow):
         self.nomHbox1 = QHBoxLayout()
         self.nomHbox1.setContentsMargins(0,0,0, self.screen_height(8))
 
-        labelNombre = QLabel("Ingrese su nombre:")
+        labelNombre = QLabel("Ingrese su nombre")
         self.style_label(labelNombre, 5)
 
         self.add_logo(self.nomHbox1)
@@ -212,6 +229,7 @@ class MainWindow(QMainWindow):
         nomOk = QPushButton(" Confirmar")
         nomOk.setFixedSize(self.screen_width(20), self.screen_height(11))
         self.style_button(nomOk, 3, 15, 2, "ok.png", 3.5)
+        nomOk.clicked.connect(self.nom_confirm)
 
         self.nomHbox3.addWidget(nomReturn)
         self.add_spacer(self.nomHbox3)
@@ -225,23 +243,183 @@ class MainWindow(QMainWindow):
         self.layoutNom.addWidget(kboardWidget)
         self.layoutNom.addLayout(self.nomHbox3)
 
-####### Layout SERVICIO #######
+####### Layout 3: SERVICIO #######
         self.serv = QWidget()
         self.layoutServ = QVBoxLayout(self.serv)
-        bluleibel = QLabel("SERVICIO")
-        self.style_label(bluleibel, 5)
-        volverAsc = QPushButton("Volver")
-        volverAsc.clicked.connect(lambda: self.stackedWidget.setCurrentIndex(1))
-        self.layoutServ.addWidget(bluleibel)
-        self.layoutServ.addWidget(volverAsc)
+        self.layoutServ.setAlignment(Qt.AlignTop)
+        #
+        self.servHbox1 = QHBoxLayout()
+
+        labelServicio = QLabel("Viene por:")
+        self.style_label(labelServicio, 5)
+
+        self.add_logo(self.servHbox1)
+        self.servHbox1.addWidget(labelServicio)
+        self.add_spacer(self.servHbox1)
+        #
+        self.servGrid = QGridLayout()
+        self.servGrid.setContentsMargins(0, self.screen_height(20), 0, self.screen_height(10))
+        self.servGrid.setHorizontalSpacing(self.screen_width(5))
+        self.servGrid.setVerticalSpacing(self.screen_height(5))
+
+        asesoria = QPushButton("Asesoría")
+        caja = QPushButton("Caja")
+        cobranza = QPushButton("Cobranza")
+        cartera = QPushButton("Cartera")
+
+        self.style_button(asesoria, 5, 15, 2)
+        self.style_button(caja, 5, 15, 2)
+        self.style_button(cobranza, 5, 15, 2)
+        self.style_button(cartera, 5, 15, 2)
+
+        asesoria.setFixedSize(self.screen_width(35), self.screen_height(15))
+        caja.setFixedSize(self.screen_width(35), self.screen_height(15))
+        cobranza.setFixedSize(self.screen_width(35), self.screen_height(15))
+        cartera.setFixedSize(self.screen_width(35), self.screen_height(15))
+
+        asesoria.clicked.connect(self.go_to_turn)
+        caja.clicked.connect(self.go_to_turn)
+        cobranza.clicked.connect(self.go_to_turn)
+        cartera.clicked.connect(self.go_to_turn)
+
+        self.servGrid.addWidget(asesoria, 0, 0)
+        self.servGrid.addWidget(caja, 0, 1)
+        self.servGrid.addWidget(cobranza, 1, 0)
+        self.servGrid.addWidget(cartera, 1, 1)
+        #
+        self.servHbox2 = QHBoxLayout()
+
+        servReturn = QPushButton(" Volver")
+        servReturn.setFixedSize(self.screen_width(15), self.screen_height(11))
+        self.style_button(servReturn, 3, 15, 2, "return.png",4)
+        servReturn.clicked.connect(self.serv_return)
+
+        self.servHbox2.addWidget(servReturn)
+        self.add_spacer(self.servHbox2)
+        #
+        self.layoutServ.addLayout(self.servHbox1)
+        self.layoutServ.addLayout(self.servGrid)
+        self.layoutServ.addLayout(self.servHbox2)
+
+####### Layout 4: TURNO #######
+        self.turn = QWidget()
+        self.layoutTurn = QVBoxLayout(self.turn)
+        #
+        turnHbox1 = QHBoxLayout()
+
+        labelTurn = QLabel("Su turno es:")
+        self.style_label(labelTurn, 7)
+
+        self.add_logo(turnHbox1)
+        turnHbox1.addWidget(labelTurn)
+        self.add_spacer(turnHbox1)
+        #
+        turnHbox2 = QHBoxLayout()
+
+        self.turno = QPushButton()
+        self.style_button(self.turno, 10, 15, 3)
+
+        self.add_spacer(turnHbox2)
+        turnHbox2.addWidget(self.turno)
+        self.add_spacer(turnHbox2)
+        #
+        turnHbox3 = QHBoxLayout()
+
+        turnBack = QPushButton(" Salir")
+        turnBack.setFixedSize(self.screen_width(14), self.screen_height(11))
+        self.style_button(turnBack, 3, 15, 2, "exit.png",4)
+        turnBack.clicked.connect(self.go_to_ent)
+
+        turnHbox3.addWidget(turnBack)
+        self.add_spacer(turnHbox3)
+        #
+        self.layoutTurn.addLayout(turnHbox1)
+        self.add_spacer(self.layoutTurn)
+        self.layoutTurn.addLayout(turnHbox2)
+        self.add_spacer(self.layoutTurn)
+        self.layoutTurn.addLayout(turnHbox3)
+
+####### Layout 5: ERROR DE ID #######
+        self.eID = QWidget()
+        self.layoutEid = QVBoxLayout(self.eID)
+        #
+        eIdHbox1 = QHBoxLayout()
+
+        self.add_logo(eIdHbox1)
+        #
+        eIdHbox2 = QHBoxLayout()
+
+        labelEid = QLabel("Nro. de cédula no encontrado. Por favor, vuelva a intentarlo.")
+        self.style_label(labelEid, 7)
+        labelEid.setWordWrap(True)
+
+        eIdHbox2.addWidget(labelEid)
+        #
+        eIdHbox3 = QHBoxLayout()
+
+        eIdReturn = QPushButton(" Volver")
+        eIdReturn.setFixedSize(self.screen_width(15), self.screen_height(11))
+        self.style_button(eIdReturn, 3, 15, 2, "return.png",4)
+        eIdReturn.clicked.connect(self.go_to_ced)
+
+        eIdQuit = QPushButton(" Salir")
+        eIdQuit.setFixedSize(self.screen_width(14), self.screen_height(11))
+        self.style_button(eIdQuit, 3, 15, 2, "exit.png",4)
+        eIdQuit.clicked.connect(self.go_to_ent)
+
+        eIdHbox3.addWidget(eIdReturn)
+        self.add_spacer(eIdHbox3)
+        eIdHbox3.addWidget(eIdQuit)
+        #
+        self.layoutEid.addLayout(eIdHbox1)
+        self.add_spacer(self.layoutEid)
+        self.layoutEid.addLayout(eIdHbox2)
+        self.add_spacer(self.layoutEid)
+        self.layoutEid.addLayout(eIdHbox3)
+
+####### Layout 6: YA ASOCIADO #######
+        self.yaAsc = QWidget()
+        self.layoutYaAsc = QVBoxLayout(self.yaAsc)
+        self.yaAsc.setLayout(self.layoutYaAsc)
+        self.layoutYaAsc.setAlignment(Qt.AlignTop)
+        #
+        lay6Hbox1 = QHBoxLayout()
+
+        self.add_logo(lay6Hbox1)
+        #
+        lay6Hbox2 = QHBoxLayout()
+
+        label6 = QLabel("Usted ya se encuentra asociado.")
+        self.style_label(label6, 7)
+        label6.setWordWrap(True)
+
+        lay6Hbox2.addWidget(label6)
+        #
+        lay6Hbox3 = QHBoxLayout()
+        lay6Hbox3.setContentsMargins(0, self.screen_height(20), 0,0)
+
+        buttonYaAsc = QPushButton("Continuar")
+        self.style_button(buttonYaAsc, 5, 15, 2)
+        buttonYaAsc.setFixedSize(self.screen_width(25), self.screen_height(15))
+        buttonYaAsc.clicked.connect(self.ya_asc_confirm)
+
+        self.add_spacer(lay6Hbox3)
+        lay6Hbox3.addWidget(buttonYaAsc)
+        self.add_spacer(lay6Hbox3)
+        #
+        self.layoutYaAsc.addLayout(lay6Hbox1)
+        self.layoutYaAsc.addLayout(lay6Hbox2)
+        self.layoutYaAsc.addLayout(lay6Hbox3)
 
 ####### Stack layouts #######
         self.stackedWidget.addWidget(self.ent)
         self.stackedWidget.addWidget(self.ced)
         self.stackedWidget.addWidget(self.nom)
         self.stackedWidget.addWidget(self.serv)
+        self.stackedWidget.addWidget(self.turn)
+        self.stackedWidget.addWidget(self.eID)
+        self.stackedWidget.addWidget(self.yaAsc)
 
-        self.init_db()
         self.showFullScreen()
 
     # Called when a button from the keypad is pressed
@@ -253,11 +431,6 @@ class MainWindow(QMainWindow):
             current_number = self.lineID.text()
             new_number = current_number + button.text()
             self.lineID.setText(new_number)
-    
-    def confirm_ced(self):
-        if self.isAsc:
-            self.stackedWidget.setCurrentIndex(3)
-        else: self.stackedWidget.setCurrentIndex(2)
     
     # Called when a button from the keyboard is pressed
     def kboard_pressed(self):
@@ -281,18 +454,51 @@ class MainWindow(QMainWindow):
     def capitalize_words(self):
         text = self.lineNom.text()
         if len(text) > 0:
-            # Split the text into words
             words = text.split(' ')
-            # Capitalize the first letter of each word
             capitalized_words = [word.capitalize() for word in words]
-            # Join the words back into a single string
             capitalized_text = ' '.join(capitalized_words)
-            # Block signals to prevent recursive calls
             self.lineNom.blockSignals(True)
-            # Set the capitalized text
             self.lineNom.setText(capitalized_text)
-            # Unblock signals
             self.lineNom.blockSignals(False)
+
+    # Called when confirm button in CÉDULA layout is clicked
+    def ced_confirm(self):
+        self.cedula = self.lineID.text().strip()
+        if self.cedula:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT * FROM clientes WHERE identificacion =  ?', (self.cedula,))
+                customerInfo = cursor.fetchall()
+            if customerInfo: # Sets self.asociado to True if the customer's ID exists in the DB and is asociado
+                self.asociado = customerInfo[0][3] == 1
+                self.stackedWidget.setCurrentIndex(3) # Sends to layout 3 (SERVICIO)
+            else: self.stackedWidget.setCurrentIndex(2) # Sends to layout 2 (NOMBRE)
+        else:
+            pass # No number input
+        self.lineID.setText("")
+    
+    def nom_confirm(self):
+        self.nombre = self.lineNom.text().strip()
+        if self.nombre:
+            try: # Insert new customer into DB
+                with sqlite3.connect(self.db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('''
+                        INSERT INTO clientes (identificacion, nombre, asociado)
+                        VALUES (?, ?, False)
+                    ''', (self.cedula, self.nombre))
+                    conn.commit()
+            except Exception as e:
+                traceback.print_exc()
+                conn.rollback()
+            self.stackedWidget.setCurrentIndex(3)
+        else:
+            pass # No name input
+        self.lineNom.setText("")
+
+    def ya_asc_confirm(self):
+        self.stackedWidget.setCurrentIndex(3)
+        self.asociado = True
 
     def ced_return(self):
         self.stackedWidget.setCurrentIndex(0)
@@ -301,15 +507,52 @@ class MainWindow(QMainWindow):
     def nom_return(self):
         self.stackedWidget.setCurrentIndex(1)
         self.lineNom.setText("")
+    
+    # Button to return from SERVICIO layout
+    def serv_return(self):
+        if self.isAsc:
+            self.stackedWidget.setCurrentIndex(1)
+        else: self.stackedWidget.setCurrentIndex(2)
+
+    def go_to_ent(self):
+        self.stackedWidget.setCurrentIndex(0)
 
     def go_to_ced(self):
         if self.sender().text() == "Sí":
             self.isAsc = True
-        else: self.isAsc = False
+        elif self.sender().text() == 'No': self.isAsc = False
         self.stackedWidget.setCurrentIndex(1)
 
-    def go_to_nom(self):
-        self.stackedWidget.setCurrentIndex(2)
+    def go_to_turn(self):
+        servicio = self.sender().text()
+        match servicio:
+            case 'Asesoría':
+                turnNumber = self.queue['AS'][-1]+1
+                self.queue['AS'].append(turnNumber)
+                self.turno.setText(f"AS-{turnNumber}")
+            case 'Caja':
+                turnNumber = self.queue['CA'][-1] + 1
+                self.queue['CA'].append(turnNumber)
+                self.turno.setText(f"CA-{turnNumber}")
+            case 'Cobranza':
+                turnNumber = self.queue['CO'][-1] + 1
+                self.queue['CO'].append(turnNumber)
+                self.turno.setText(f"CO-{turnNumber}")
+            case 'Cartera':
+                turnNumber = self.queue['CT'][-1] + 1
+                self.queue['CT'].append(turnNumber)
+                self.turno.setText(f"CT-{turnNumber}")
+        self.send_command(servicio)
+        self.stackedWidget.setCurrentIndex(4)
+    
+    def send_command(self, servicio):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.connect((self.host, self.port))
+                if servicio == "Asesoría":
+                    s.sendall(f"NEWTICKET_{self.cedula}_AS".encode('utf-8'))
+        except Exception as e:
+            traceback.print_exc()
     
     # Sets stylesheet for a label
     def style_label(self, label, fontSize):
@@ -320,7 +563,7 @@ class MainWindow(QMainWindow):
             }}
         """)
         shadow = QGraphicsDropShadowEffect(label, blurRadius=20)
-        shadow.setOffset(5, 5)
+        shadow.setOffset(2, 2)
         label.setGraphicsEffect(shadow)
         label.setAlignment(Qt.AlignCenter)
 
@@ -367,8 +610,8 @@ class MainWindow(QMainWindow):
                 }}
             """
         button.setStyleSheet(styleSheet)
-        shadow = QGraphicsDropShadowEffect(button, blurRadius=20)
-        shadow.setOffset(5, 5)
+        shadow = QGraphicsDropShadowEffect(button, blurRadius=10)
+        shadow.setOffset(2, 2)
         button.setGraphicsEffect(shadow)
 
     # Sets stylesheet for a line edit
@@ -424,11 +667,6 @@ class MainWindow(QMainWindow):
     # Returns pixel value of screen height % based on parameter
     def screen_height(self, num):
         return int(self.screenGeometry.height()*num/100)
-    
-    def init_db(self):
-        self.conn = sqlite3.connect('digiturno.db')
-        self.cursor = self.conn.cursor()
-        self.cursor.execute("PRAGMA foreign_keys = ON")
     
 if __name__ == "__main__":
     app = QApplication(sys.argv)

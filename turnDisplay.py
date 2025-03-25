@@ -53,10 +53,8 @@ class Digiturno(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Digiturno")
-        self.queue = {'P': [], 'Q': [], 'R': [], 'S': []}
-        self.attending = {'1': [], '2': [], '3': [], '4': [], '5': [], '6': [], '7': [], '8': [], '9': []}
-        self.attendedToday = {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7': 0, '8': 0, '9': 0}
-        self.canceledToday = {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7': 0, '8': 0, '9': 0}
+        self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
+        self.serving = {'1': [], '2': [], '3': [], '4': [], '5': [], '6': [], '7': [], '8': [], '9': []}
 
         self.init_ui()
         self.init_db()
@@ -137,14 +135,6 @@ class Digiturno(QMainWindow):
         self.add_header("Cartera", 0, 2, 2)
         self.add_header("Cobranza", 0, 3, 2)
         self.add_header("En cola", 0, 0, 3)
-        # Placeholder button for simulating new turns
-        self.buttonNew = QPushButton("Nuevo turno", self)
-        self.waitHeader.addWidget(self.buttonNew)
-        self.buttonNew.clicked.connect(lambda: self.new_turn(
-            f"CC{random.randint(100000000, 999999999)}",  # Random user ID
-            random.choice([True, False]),     # Random afiliado status
-            chr(random.randint(80, 83))       # Random service letter H-K
-            ))
         # Turn display box
         self.turnAlert = TurnAlert(self)
         self.position_turn_alert()
@@ -195,18 +185,13 @@ class Digiturno(QMainWindow):
             self.cancel_turn(int(station))
         # Handle command for new ticket
         elif command.startswith('NEWTICKET_'):
-            _, cliente_id, afiliado, servicio = command.split('_')
-            self.new_turn(cliente_id, afiliado == '1', servicio)
+            _, cliente_id, servicio = command.split('_')
+            self.new_turn(cliente_id, servicio)
+            print("Command recieved")
 
-    def new_turn(self, cliente_id, afiliado, servicio):
+    def new_turn(self, cedula, servicio):
         fechaHoy = datetime.now().strftime("%Y-%m-%d")
         try:
-            # Register/verify user
-            self.cursor.execute('''
-                INSERT OR IGNORE INTO clientes (identificacion, afiliado)
-                VALUES (?, ?)
-            ''', (cliente_id, afiliado))
-            # Get next turn number
             self.cursor.execute('''
                 SELECT MAX(numero) FROM turnos
                 WHERE servicio = ? AND DATE(creado) = ?
@@ -219,7 +204,7 @@ class Digiturno(QMainWindow):
                 INSERT INTO turnos (cliente_id, servicio, numero, estado, creado)
                 VALUES (
                     (SELECT id FROM clientes WHERE identificacion = ?),
-                    ?, ?, 'pendiente', datetime('now'))''', (cliente_id, servicio, newNum))
+                    ?, ?, 'pendiente', datetime('now'))''', (cedula, servicio, newNum))
             self.conn.commit()
             # Add turn to queue and grid
             self.queue[servicio].append(newNum)
@@ -235,37 +220,30 @@ class Digiturno(QMainWindow):
         service = self.match_service(station)
         if self.queue[service]:
             nextTurn = self.queue[service].pop(0)
-            self.attending[station] = nextTurn
+            self.serving[station] = nextTurn
             # Updates current turn status to "atendido" in DB
             self.cursor.execute('''
                 UPDATE turnos SET estado = 'atendido', llamado = datetime('now')
                 WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
                                 ''', (service, nextTurn))
             self.cursor.execute('''
-                UPDATE estaciones SET atendidos_hoy = atendidos_hoy + 1
+                UPDATE funcionarios SET atendidos_hoy = atendidos_hoy + 1
                 WHERE id = ?
                                 ''', (station,))
             self.conn.commit()
             self.orderedTurns.remove((service, nextTurn))
             print(f"Ordered turns: {self.orderedTurns}")
-            self.update_attending(station)
+            self.update_serving(station)
             self.update_waiting()
             self.show_alert(station, nextTurn)
         else:
-            self.attending[station] = None
-            self.update_attending(station)
+            self.serving[station] = None
+            self.update_serving(station)
             self.update_waiting()
             print(f"No hay turnos en espera para el servicio {service}")
     
     # Loads data from DB if created today
     def init_display(self):
-        # Get attended and cancelled turns today
-        self.cursor.execute('''
-            SELECT id, atendidos_hoy
-            FROM estaciones
-                            ''')
-        self.attendedToday = self.cursor.fetchall()
-        print(self.attendedToday)
         # Sort turns by creation order
         self.cursor.execute('''
             SELECT servicio, numero
@@ -278,10 +256,10 @@ class Digiturno(QMainWindow):
         print(f"Ordered turns: {self.orderedTurns}")
         self.update_waiting()
 
-    # Updates displayed turns in attending
-    def update_attending(self, station, init_mode=False):
+    # Updates displayed turns in serving
+    def update_serving(self, station, init_mode=False):
         col = station - 1
-        # Calls in next turn to attend
+        # Calls in next turn to serve
         if not init_mode:
             # First 5 stations
             if col < 5:
@@ -294,8 +272,8 @@ class Digiturno(QMainWindow):
                     self.gridLayout1.removeItem(itemToRemove)
                 else: # Use this block to show feedback when the station is empty
                     pass
-                if self.attending[station]:
-                    ticket = QLabel(f"{self.match_service(station)}-{self.attending[station]}")
+                if self.serving[station]:
+                    ticket = QLabel(f"{self.match_service(station)}-{self.serving[station]}")
                     self.style_label(ticket, True)
                     self.gridLayout1.addWidget(ticket, 1, col)
             # Last 4 stations
@@ -310,9 +288,9 @@ class Digiturno(QMainWindow):
                     self.gridLayout2.removeItem(itemToRemove)
                 else: # Use this block to show feedback when the station is empty
                     pass
-                # Add new ticket being attended
-                if self.attending[station]:
-                    ticket = QLabel(f"{self.match_service(station)}-{self.attending[station]}")
+                # Add new ticket being served
+                if self.serving[station]:
+                    ticket = QLabel(f"{self.match_service(station)}-{self.serving[station]}")
                     self.style_label(ticket, True)
                     self.gridLayout2.addWidget(ticket, 1, col)
     
@@ -337,13 +315,13 @@ class Digiturno(QMainWindow):
                 child.widget().setGraphicsEffect(None)
                 child.widget().deleteLater()
 
-    # Cancels attending turn
+    # Cancels serving turn
     def cancel_turn(self, station):
         col = station - 1
         service = self.match_service(station)
-        if self.attending[station]:
-            turn = self.attending[station]
-            self.attending[station] = None
+        if self.serving[station]:
+            turn = self.serving[station]
+            self.serving[station] = None
             self.cursor.execute('''
                 UPDATE turnos SET estado = 'cancelado'
                 WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
@@ -400,9 +378,9 @@ class Digiturno(QMainWindow):
         self.turnAlert.anim.start()
 
     # Sets style for turn labels
-    def style_label(self, label, attending):
+    def style_label(self, label, serving):
         label.setAutoFillBackground(True)  # Crucial for background rendering, whatever that means
-        if attending:
+        if serving:
             label.setStyleSheet(f"""
                 QLabel {{
                     background: qlineargradient(
@@ -497,45 +475,35 @@ class Digiturno(QMainWindow):
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     identificacion TEXT UNIQUE NOT NULL,
                     nombre TEXT,
-                    afiliado BOOLEAN NOT NULL
+                    asociado BOOLEAN NOT NULL
                 )''')
             # Tabla de turnos
             self.cursor.execute('''
                 CREATE TABLE IF NOT EXISTS turnos (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     cliente_id INTEGER NOT NULL,
-                    estacion_id INTEGER,
+                    funcionario_id INTEGER,
                     servicio TEXT NOT NULL,
                     numero INTEGER NOT NULL,
                     estado TEXT NOT NULL, -- 'pendiente', 'atendido', 'cancelado'
                     creado DATETIME,
                     llamado DATETIME,
                     FOREIGN KEY(cliente_id) REFERENCES clientes(id),
-                    FOREIGN KEY(estacion_id) REFERENCES estaciones(id)
+                    FOREIGN KEY(funcionario_id) REFERENCES funcionarios(id)
                 )''')
-            # Tabla de estaciones
+            # Tabla de funcionarios
             self.cursor.execute('''
-                CREATE TABLE IF NOT EXISTS estaciones (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    nombre TEXT NOT NULL,
-                    servicio TEXT NOT NULL,
-                    activo BOOLEAN DEFAULT 1,
-                    ocupado BOOLEAN DEFAULT 0,
-                    atendidos INTEGER,
-                    cancelados INTEGER,
-                    atendidos_hoy INTEGER DEFAULT 0,
-                    cancelados_hoy INTEGER DEFAULT 0
-                )''')
-            # Tabla de empleados
-            self.cursor.execute('''
-                CREATE TABLE IF NOT EXISTS empleados (
+                CREATE TABLE IF NOT EXISTS funcionarios (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     nombre TEXT,
                     identificacion TEXT UNIQUE NOT NULL,
-                    estacion_id INTEGER,
-                    fecha_inicio DATE,
-                    fecha_fin DATE,
-                    FOREIGN KEY(estacion_id) REFERENCES estaciones(id)
+                    usuario TEXT UNIQUE NOT NULL,
+                    contrasena TEXT NOT NULL,
+                    is_admin INTEGER DEFAULT 0,
+                    atendidos_hoy INTEGER DEFAULT 0,
+                    cancelados_hoy INTEGER DEFAULT 0,
+                    atendidos INTEGER,
+                    cancelados INTEGER
                 )''')
             # Tabla de control de fecha
             self.cursor.execute('''
@@ -549,19 +517,14 @@ class Digiturno(QMainWindow):
             print(f"Error creating DB: {e}")
             self.conn.rollback()
         try:
-            # Create estaciones
+            # Create funcionarios
             self.cursor.execute('''
-                    INSERT OR IGNORE INTO estaciones (id, nombre, servicio)
-                    VALUES (1, 'caja1', 'P'), (2, 'caja2', 'P'), (3, 'asesor1', 'Q'),
-                        (4, 'asesor2', 'Q'), (5, 'asesor3', 'Q'), (6, 'asesor4', 'Q'), (7, 'asesor5', 'Q'),
-                        (8, 'cartera', 'R'), (9, 'cobranza', 'S')
-                ''')
-            # Create empleados
-            self.cursor.execute('''
-                    INSERT OR IGNORE INTO empleados (identificacion, nombre, estacion_id)
-                    VALUES ('CC2132', 'empleado1', '1'), ('CC3215', 'empleado2', '2'), ('CC4896', 'empleado3', '3'),
-                    ('CC9525', 'empleado4', '4'), ('CC1962', 'empleado5', '5'), ('CC1052', 'empleado6', '6'),
-                    ('CC1524', 'empleado7', '7'), ('CC8513', 'empleado8', '8'), ('CC4198', 'empleado9', '9')
+                    INSERT OR IGNORE INTO funcionarios (identificacion, nombre, usuario, contrasena)
+                    VALUES ('CC2132', 'funcionario1', 'funcionario1', 'pass'), ('CC3215', 'funcionario2', 'funcionario2', 'pass'),
+                        ('CC4896', 'funcionario3', 'funcionario3', 'pass'), ('CC9525', 'funcionario4', 'funcionario4', 'pass'),
+                        ('CC1962', 'funcionario5', 'funcionario5', 'pass'), ('CC1052', 'funcionario6', 'funcionario6', 'pass'),
+                        ('CC1524', 'funcionario7', 'funcionario7', 'pass'), ('CC8513', 'funcionario8', 'funcionario8', 'pass'),
+                        ('CC4198', 'funcionario9', 'funcionario9', 'pass')
                 ''')
             # Create control de fecha
             self.cursor.execute('''
@@ -576,7 +539,7 @@ class Digiturno(QMainWindow):
             last_reset = self.cursor.fetchone()[0]
             if last_reset != today:
                 self.cursor.execute('''
-                    UPDATE estaciones
+                    UPDATE funcionarios
                     SET atendidos_hoy = 0, cancelados_hoy = 0
                                     ''')
                 self.cursor.execute('''

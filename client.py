@@ -28,18 +28,18 @@ class LoginDialog(QDialog):
         self.setLayout(self.layout)
 
     def verify_credentials(self):
-        conn = sqlite3.connect('client_users.db')
+        conn = sqlite3.connect('digiturno.db')
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT estacion_id, is_admin FROM usuarios 
-            WHERE nombre = ? AND contrasena = ?
+            SELECT id, is_admin FROM funcionarios 
+            WHERE usuario = ? AND contrasena = ?
         ''', (self.username.text(), self.password.text()))
         result = cursor.fetchone()
         conn.close()
         
         if result:
             self.user_info = {
-                'estacion_id': result[0],
+                'id': result[0],
                 'is_admin': bool(result[1])
             }
             self.accept()
@@ -49,7 +49,7 @@ class LoginDialog(QDialog):
 class UserManagerDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Gestión de usuarios")
+        self.setWindowTitle("Gestión de funcionarios")
         self.setGeometry(610, 310, 900, 400)
         self.setup_ui()
 
@@ -58,7 +58,7 @@ class UserManagerDialog(QDialog):
         layout = QVBoxLayout()
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Usuario", "Contraseña", "Estación", "Admin"])
+        self.table.setHorizontalHeaderLabels(["Identificación", "Usuario", "Contraseña", "Admin"])
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.load_users()
 
@@ -83,9 +83,9 @@ class UserManagerDialog(QDialog):
         self.setLayout(layout)
 
     def load_users(self):
-        conn = sqlite3.connect('client_users.db')
+        conn = sqlite3.connect('digiturno.db')
         cursor = conn.cursor()
-        cursor.execute("SELECT nombre, contrasena, estacion_id, is_admin FROM usuarios")
+        cursor.execute("SELECT identificacion, usuario, contrasena, is_admin FROM funcionarios")
         users = cursor.fetchall()
         
         self.table.setRowCount(len(users))
@@ -95,19 +95,19 @@ class UserManagerDialog(QDialog):
         conn.close()
 
     def confirm_changes(self):
-        conn = sqlite3.connect('client_users.db')
+        conn = sqlite3.connect('digiturno.db')
         cursor = conn.cursor()
         for row in range(self.table.rowCount()):
-            nombre = self.table.item(row, 0).text()
-            contrasena = self.table.item(row, 1).text()
-            estacion_id = self.table.item(row, 2).text()
+            identificacion = self.table.item(row, 0).text()
+            usuario = self.table.item(row, 1).text()
+            constrasena = self.table.item(row, 2).text()
             is_admin = self.table.item(row, 3).text()
             
             cursor.execute('''
-                UPDATE usuarios
-                SET contrasena = ?, estacion_id = ?, is_admin = ?
-                WHERE nombre = ?
-            ''', (contrasena, estacion_id, is_admin, nombre))
+                UPDATE funcionarios
+                SET usuario = ?, contrasena = ?, is_admin = ?
+                WHERE identificacion = ?
+            ''', (usuario, constrasena, is_admin, identificacion))
         
         conn.commit()
         conn.close()
@@ -152,9 +152,10 @@ class AddUserDialog(QDialog):
     
     def setup_ui(self):
         layout = QFormLayout()
-        self.unInput = QLineEdit("")
+        self.nameInput = QLineEdit("")
+        self.idInput = QLineEdit("")
         self.passInput = QLineEdit("")
-        self.stIdInput = QLineEdit("")
+        self.userNameInput = QLineEdit("")
         self.isAdminRB1 = QRadioButton("Sí")
         self.isAdminRB2 = QRadioButton("No")
         self.isAdminRB2.setChecked(True)
@@ -167,34 +168,36 @@ class AddUserDialog(QDialog):
         saveButton = QPushButton("Agregar")
         saveButton.clicked.connect(self.add_user)
 
-        layout.addRow("Nombre:", self.unInput)
+        layout.addRow("Nombre:", self.nameInput)
+        layout.addRow("Identificación:", self.idInput)
+        layout.addRow("Nombre de usuario:", self.userNameInput)
         layout.addRow("Contraseña", self.passInput)
-        layout.addRow("Estación ID:", self.stIdInput)
         layout.addRow("Admin:", isAdminLayout)
         layout.addRow(saveButton)
         self.setLayout(layout)
     
     def add_user(self):
-        conn = sqlite3.connect('client_users.db')
+        conn = sqlite3.connect('digiturno.db')
         cursor = conn.cursor()
         cursor.execute('''
             SELECT estacion_id FROM usuarios
                        ''')
         if self.isAdminRB1.isChecked(): isAdminCheck = '1'
         else: isAdminCheck = '0'
-        if not (self.unInput.text() and self.passInput.text() and self.stIdInput.text()):
+        if not (self.nameInput.text() and self.idInput and self.userNameInput and self.passInput.text() and self.userNameInput.text()):
             QMessageBox.warning(self, "Error", "Llene todos los campos")
             return
         try:
             cursor.execute('''
-                INSERT OR IGNORE INTO usuarios
-                VALUES (?, ?, ?, ?)
-                    ''', (self.unInput.text(), self.passInput.text(), self.stIdInput.text(), isAdminCheck))
+                INSERT OR IGNORE INTO funcionarios (nombre, identificacion, usuario, contrasena, is_admin)
+                VALUES (?, ?, ?, ?, ?)
+                    ''', (self.nameInput.text(), self.idInput.text(), self.userNameInput.text(), self.passInput.text(), isAdminCheck))
             conn.commit()
             QMessageBox.warning(self, "", "Usuario registrado exitosamente")
-            self.unInput.setText("")
+            self.nameInput.setText("")
+            self.idInput.setText("")
+            self.userNameInput.setText("")
             self.passInput.setText("")
-            self.stIdInput.setText("")
             self.isAdminRB2.setChecked(True)
         except Exception as e:
             QMessageBox.warning(self, "Error", f"{e}")
@@ -249,20 +252,12 @@ class StaffClient(QMainWindow):
         self.load_config()
 
     def init_db(self):
-        conn = sqlite3.connect('client_users.db')
+        conn = sqlite3.connect('digiturno.db')
         cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS usuarios (
-                nombre TEXT PRIMARY KEY,
-                contrasena TEXT,
-                estacion_id INTEGER,
-                is_admin BOOLEAN
-            )
-        ''')
         # Add default admin if not exists
         cursor.execute('''
-            INSERT OR IGNORE INTO usuarios VALUES 
-            ('admin', 'admin', 0, 1)
+            INSERT OR IGNORE INTO funcionarios (nombre, identificacion, usuario, contrasena, is_admin)
+            VALUES ('nombreAdmin', 'CC1094044402', 'admin', 'pass', 1)
         ''')
         conn.commit()
         conn.close()
