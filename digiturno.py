@@ -549,8 +549,11 @@ class MainWindow(QMainWindow):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.connect((self.host, self.port))
-                if servicio == "Asesoría":
-                    s.sendall(f"NEWTICKET_{self.cedula}_AS".encode('utf-8'))
+                match servicio:
+                    case 'Asesoría': s.sendall(f"NEWTICKET_{self.cedula}_AS".encode('utf-8'))
+                    case 'Caja': s.sendall(f"NEWTICKET_{self.cedula}_CA".encode('utf-8'))
+                    case 'Cobranza': s.sendall(f"NEWTICKET_{self.cedula}_CO".encode('utf-8'))
+                    case 'Cartera': s.sendall(f"NEWTICKET_{self.cedula}_CT".encode('utf-8'))
         except Exception as e:
             traceback.print_exc()
     
