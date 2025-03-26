@@ -1,4 +1,4 @@
-import sys, socket, sqlite3
+import sys, socket, sqlite3, traceback
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -10,17 +10,19 @@ class MainWindow(QMainWindow):
         self.db_path = "digiturno.db"
         self.host = '192.168.0.54'
         self.port = 47529
+        self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
         self.init_ui()
     
     def init_ui(self):
         self.setWindowTitle("Funcionario COOHEM")
+        self.setGeometry(10, 50, 900, 500)
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         self.set_background_color(central_widget, '#EFE3C2')
         layoutMain = QVBoxLayout(central_widget)
         layoutMain.setAlignment(Qt.AlignTop)
 
-        # Logo and title
+        # Logo and title #
         hBox1 = QHBoxLayout()
         hBox1.setContentsMargins(10, 0, 10, 20)
 
@@ -39,7 +41,7 @@ class MainWindow(QMainWindow):
         hBox1.addWidget(labelTitle)
         self.add_spacer(hBox1)
 
-        # Headers
+        # Headers #
         hBox2 = QHBoxLayout()
         hBox2.setContentsMargins(10, 0, 10, 0)
 
@@ -58,39 +60,34 @@ class MainWindow(QMainWindow):
         hBox2.addWidget(labelCobranza)
         hBox2.addWidget(labelCartera)
 
-        # Grid for turns
+        # Grid for turns #
         hBox3 = QHBoxLayout()
         hBox3Widget = QWidget()
         self.gridTurns = QGridLayout(hBox3Widget)
         self.gridTurns.setContentsMargins(10, 0, 10, 0)
 
         # Spacers
-        expanding_spacer = QSpacerItem(150, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
         for i in range(4):
+            expanding_spacer = QSpacerItem(500, 20, QSizePolicy.Expanding, QSizePolicy.Preferred)
             self.gridTurns.addItem(expanding_spacer, 0, i)
         
-        # Placeholder turns
-        for j in range(5):
-            for i in range(4):
-                gridWidget = QWidget()
-                gridHbox = QHBoxLayout(gridWidget)
-                gridHbox.setSpacing(0)
-                gridWidget.setLayout(gridHbox)
-                
-                turno = QWidget()
-                turno.setMaximumWidth(int(QApplication.primaryScreen().geometry().width()/6))
-                turno.setMinimumWidth(int(QApplication.primaryScreen().geometry().width()/20))
-                self.format_turn(turno, f"AS-{4*j+i+1}", "IDK IDK IDK IDK")
-                button2 = QPushButton("Llamar")
-                button2.setMinimumWidth(60)
-                button2.setMaximumSize(90, 100)
+        # Load pending turns from DB
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT servicio, numero
+                    FROM turnos
+                    WHERE estado = 'pendiente'
+                    AND DATE(creado) = DATE('now')
+                    ORDER BY creado
+                ''')
+                for servicio, numero in cursor.fetchall():
+                    self.queue[servicio].append(numero)
+                    self.add_pending_turn(servicio, numero)
+        except:
+            traceback.print_exc()
 
-                self.add_spacer(gridHbox)
-                gridHbox.addWidget(turno)
-                gridHbox.addWidget(button2)
-                self.add_spacer(gridHbox)
-                self.gridTurns.addWidget(gridWidget, j, i)
-        
         hBox3.addWidget(hBox3Widget)
 
         # Add layouts to main layout
@@ -98,6 +95,35 @@ class MainWindow(QMainWindow):
         layoutMain.addLayout(hBox2)
         layoutMain.addLayout(hBox3)
 
+    def add_pending_turn(self, servicio, numero, nombre=None):
+        row = len(self.queue[servicio]) - 1
+        if row < 5:
+            gridWidget = QWidget()
+            gridHbox = QHBoxLayout(gridWidget)
+            gridHbox.setSpacing(0)
+            gridWidget.setLayout(gridHbox)
+
+            turno = QWidget()
+            turno.setMinimumWidth(int(QApplication.primaryScreen().geometry().width()/20))
+            turno.setMaximumWidth(int(QApplication.primaryScreen().geometry().width()/6))
+            self.format_turn(turno, f"{servicio}-{numero}", "Nombre Nombre Nombre Nombre")
+
+            llamar = QPushButton("Llamar")
+            llamar.setMinimumWidth(70)
+            llamar.setMaximumSize(90, 100)
+            self.style_button(llamar)
+
+            self.add_spacer(gridHbox)
+            gridHbox.addWidget(turno)
+            gridHbox.addWidget(llamar)
+            self.add_spacer(gridHbox)
+            match servicio:
+                case 'AS': col = 0
+                case 'CA': col = 1
+                case 'CO': col = 2
+                case 'CT': col = 3
+            self.gridTurns.addWidget(gridWidget, row, col)
+    
     def style_label(self, label, fontSize, color):
         styleSheet = f"""
             QLabel {{
@@ -111,12 +137,11 @@ class MainWindow(QMainWindow):
     def style_button(self, button):
         styleSheet = f"""
             QPushButton {{
-                background-color: #3E7B27;
+                background-color: #669A0D;
                 color: white;
                 font-size: 20px;
             }}
         """
-        button.setFixedSize(90, 70)
         button.setStyleSheet(styleSheet)
 
     def format_turn(self, widget, turn, name):
