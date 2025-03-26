@@ -1,9 +1,7 @@
-import sys
-import socket
+import sys, socket, sqlite3
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
-import sqlite3
 
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
@@ -87,7 +85,7 @@ class UserManagerDialog(QDialog):
         cursor = conn.cursor()
         cursor.execute("SELECT identificacion, usuario, contrasena, is_admin FROM funcionarios")
         users = cursor.fetchall()
-        
+
         self.table.setRowCount(len(users))
         for row, user in enumerate(users):
             for col, data in enumerate(user):
@@ -179,9 +177,6 @@ class AddUserDialog(QDialog):
     def add_user(self):
         conn = sqlite3.connect('digiturno.db')
         cursor = conn.cursor()
-        cursor.execute('''
-            SELECT estacion_id FROM usuarios
-                       ''')
         if self.isAdminRB1.isChecked(): isAdminCheck = '1'
         else: isAdminCheck = '0'
         if not (self.nameInput.text() and self.idInput and self.userNameInput and self.passInput.text() and self.userNameInput.text()):
