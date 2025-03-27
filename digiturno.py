@@ -19,7 +19,6 @@ class MainWindow(QMainWindow):
         self.db_path = "digiturno.db"
         self.nombre = ""
         self.cedula = ""
-        self.isAsc = False
         self.asociado = False
         self.queue = {'AS': [0], 'CA': [0], 'CO': [0], 'CT': [0]}
         self.host = '192.168.0.54'
@@ -36,56 +35,16 @@ class MainWindow(QMainWindow):
         for servicio, numero in cursor.fetchall():
             self.queue[servicio].append(numero)
 
-####### Layout 0: ENTRADA #######
-        self.ent = QWidget()
-        self.layoutEnt = QVBoxLayout(self.ent)
-        self.layoutEnt.setAlignment(Qt.AlignTop)
-        self.layoutEnt.setSpacing(self.screen_height(15))
-        self.ent.setLayout(self.layoutEnt)
-        #
-        self.entHbox1 = QHBoxLayout()
-        self.entHbox1.setSpacing(5)
-
-        bienvenido = QLabel("Bienvenido")
-        self.style_label(bienvenido, 5.5)
-        
-        self.add_logo(self.entHbox1)
-        self.entHbox1.addWidget(bienvenido)
-        self.add_spacer(self.entHbox1)
-        #
-        pregunta = QLabel("¿Es asociado?")
-        self.style_label(pregunta, 9)
-        #
-        self.entHbox2 = QHBoxLayout()
-        self.entHbox2.setAlignment(Qt.AlignCenter)
-        self.entHbox2.setSpacing(self.screen_width(10))
-
-        self.entNo = QPushButton("No")
-        self.entSi = QPushButton("Sí")
-        self.entNo.setFixedWidth(self.screen_width(20))
-        self.entSi.setFixedWidth(self.screen_width(20))
-        self.style_button(self.entNo, 10, 30, 2)
-        self.style_button(self.entSi, 10, 30, 2)
-        self.entNo.clicked.connect(self.go_to_ced)
-        self.entSi.clicked.connect(self.go_to_ced)
-
-        self.entHbox2.addWidget(self.entNo)
-        self.entHbox2.addWidget(self.entSi)
-        #
-        self.layoutEnt.addLayout(self.entHbox1)
-        self.layoutEnt.addWidget(pregunta)
-        self.layoutEnt.addLayout(self.entHbox2)
-
-####### Layout 1: CÉDULA #######
+####### Layout 0: CÉDULA #######
         self.ced = QWidget()
         self.layoutCed = QVBoxLayout(self.ced)
         self.layoutCed.setAlignment(Qt.AlignTop)
         #
         self.cedHbox1 = QHBoxLayout()
-        self.cedHbox1.setContentsMargins(0, 0, 0, self.screen_height(5))
+        self.cedHbox1.setContentsMargins(0, 0, 0, self.screen_height(1))
 
-        labelCedula = QLabel("Ingrese su cédula")
-        self.style_label(labelCedula, 5)
+        labelCedula = QLabel("Bienvenido<Br>Ingrese su cédula")
+        self.style_label(labelCedula, 4)
 
         self.add_logo(self.cedHbox1)
         self.cedHbox1.addWidget(labelCedula)
@@ -96,7 +55,7 @@ class MainWindow(QMainWindow):
 
         self.lineID = QLineEdit()
         self.lineID.setFixedWidth(self.screen_width(60))
-        self.style_line_edit(self.lineID, 8)
+        self.style_line_edit(self.lineID, 7)
         self.lineID.setReadOnly(True)
 
         self.cedHbox2.addWidget(self.lineID)
@@ -124,34 +83,27 @@ class MainWindow(QMainWindow):
         self.cedHbox4 = QHBoxLayout()
         self.cedHbox4.setSpacing(0)
 
-        cedReturn = QPushButton(" Volver")
-        cedReturn.setFixedSize(self.screen_width(15), self.screen_height(11))
-        self.style_button(cedReturn, 3, 15, 2, "return.png",4)
-        cedReturn.clicked.connect(self.ced_return)
-
         cedDel = QPushButton("Borrar")
-        cedDel.setFixedSize(self.screen_width(15), cedReturn.height())
+        cedDel.setFixedSize(self.screen_width(15), self.screen_height(12))
         self.style_button(cedDel, 3, 15, 2, "delete.png",5, True)
         cedDel.clicked.connect(self.kpad_pressed)
 
         nomOk = QPushButton("Confirmar")
-        nomOk.setFixedSize(self.screen_width(15), cedReturn.height())
+        nomOk.setFixedSize(self.screen_width(15), self.screen_height(12))
         self.style_button(nomOk, 2.3, 15, 2, "ok.png", 3.5)
         nomOk.clicked.connect(self.ced_confirm)
 
-        self.cedHbox4.addWidget(cedReturn)
         self.add_spacer(self.cedHbox4)
         self.cedHbox4.addWidget(cedDel)
         self.cedHbox4.addWidget(nomOk)
         self.add_spacer(self.cedHbox4)
-        self.add_spacer(self.cedHbox4, cedReturn.width())
         #
         self.layoutCed.addLayout(self.cedHbox1)
         self.layoutCed.addLayout(self.cedHbox2)
         self.layoutCed.addLayout(self.cedHbox3)
         self.layoutCed.addLayout(self.cedHbox4)
         
-####### Layout 2: NOMBRE (no asociado) #######
+####### Layout 1: NOMBRE (no asociado) #######
         self.nom = QWidget()
         self.layoutNom = QVBoxLayout(self.nom)
         self.layoutNom.setAlignment(Qt.AlignTop)
@@ -203,10 +155,10 @@ class MainWindow(QMainWindow):
                 kboardButton = QPushButton(key)
                 if kboardButton.text()=="Borrar":
                     self.style_button(kboardButton, 3, 15, 2, "delete.png", 5, True)
-                    kboardButton.setFixedSize(self.screen_width(15), cedReturn.height())
+                    kboardButton.setFixedSize(self.screen_width(15), self.screen_height(12))
                 elif kboardButton.text()=="⎵":
                     self.style_button(kboardButton, 5, 15, 2)
-                    kboardButton.setFixedSize(self.screen_width(40), cedReturn.height())
+                    kboardButton.setFixedSize(self.screen_width(40), self.screen_height(12))
                 else:
                     kboardButton.setFixedWidth(self.screen_width(9.3))
                     self.style_button(kboardButton, 5, 15, 2)
@@ -243,7 +195,7 @@ class MainWindow(QMainWindow):
         self.layoutNom.addWidget(kboardWidget)
         self.layoutNom.addLayout(self.nomHbox3)
 
-####### Layout 3: SERVICIO #######
+####### Layout 2: SERVICIO #######
         self.serv = QWidget()
         self.layoutServ = QVBoxLayout(self.serv)
         self.layoutServ.setAlignment(Qt.AlignTop)
@@ -301,7 +253,7 @@ class MainWindow(QMainWindow):
         self.layoutServ.addLayout(self.servGrid)
         self.layoutServ.addLayout(self.servHbox2)
 
-####### Layout 4: TURNO #######
+####### Layout 3: TURNO #######
         self.turn = QWidget()
         self.layoutTurn = QVBoxLayout(self.turn)
         #
@@ -339,86 +291,11 @@ class MainWindow(QMainWindow):
         self.add_spacer(self.layoutTurn)
         self.layoutTurn.addLayout(turnHbox3)
 
-####### Layout 5: ERROR DE ID #######
-        self.eID = QWidget()
-        self.layoutEid = QVBoxLayout(self.eID)
-        #
-        eIdHbox1 = QHBoxLayout()
-
-        self.add_logo(eIdHbox1)
-        #
-        eIdHbox2 = QHBoxLayout()
-
-        labelEid = QLabel("Nro. de cédula no encontrado. Por favor, vuelva a intentarlo.")
-        self.style_label(labelEid, 7)
-        labelEid.setWordWrap(True)
-
-        eIdHbox2.addWidget(labelEid)
-        #
-        eIdHbox3 = QHBoxLayout()
-
-        eIdReturn = QPushButton(" Volver")
-        eIdReturn.setFixedSize(self.screen_width(15), self.screen_height(11))
-        self.style_button(eIdReturn, 3, 15, 2, "return.png",4)
-        eIdReturn.clicked.connect(self.go_to_ced)
-
-        eIdQuit = QPushButton(" Salir")
-        eIdQuit.setFixedSize(self.screen_width(14), self.screen_height(11))
-        self.style_button(eIdQuit, 3, 15, 2, "exit.png",4)
-        eIdQuit.clicked.connect(self.go_to_ent)
-
-        eIdHbox3.addWidget(eIdReturn)
-        self.add_spacer(eIdHbox3)
-        eIdHbox3.addWidget(eIdQuit)
-        #
-        self.layoutEid.addLayout(eIdHbox1)
-        self.add_spacer(self.layoutEid)
-        self.layoutEid.addLayout(eIdHbox2)
-        self.add_spacer(self.layoutEid)
-        self.layoutEid.addLayout(eIdHbox3)
-
-####### Layout 6: YA ASOCIADO #######
-        self.yaAsc = QWidget()
-        self.layoutYaAsc = QVBoxLayout(self.yaAsc)
-        self.yaAsc.setLayout(self.layoutYaAsc)
-        self.layoutYaAsc.setAlignment(Qt.AlignTop)
-        #
-        lay6Hbox1 = QHBoxLayout()
-
-        self.add_logo(lay6Hbox1)
-        #
-        lay6Hbox2 = QHBoxLayout()
-
-        label6 = QLabel("Usted ya se encuentra asociado.")
-        self.style_label(label6, 7)
-        label6.setWordWrap(True)
-
-        lay6Hbox2.addWidget(label6)
-        #
-        lay6Hbox3 = QHBoxLayout()
-        lay6Hbox3.setContentsMargins(0, self.screen_height(20), 0,0)
-
-        buttonYaAsc = QPushButton("Continuar")
-        self.style_button(buttonYaAsc, 5, 15, 2)
-        buttonYaAsc.setFixedSize(self.screen_width(25), self.screen_height(15))
-        buttonYaAsc.clicked.connect(self.ya_asc_confirm)
-
-        self.add_spacer(lay6Hbox3)
-        lay6Hbox3.addWidget(buttonYaAsc)
-        self.add_spacer(lay6Hbox3)
-        #
-        self.layoutYaAsc.addLayout(lay6Hbox1)
-        self.layoutYaAsc.addLayout(lay6Hbox2)
-        self.layoutYaAsc.addLayout(lay6Hbox3)
-
 ####### Stack layouts #######
-        self.stackedWidget.addWidget(self.ent)
         self.stackedWidget.addWidget(self.ced)
         self.stackedWidget.addWidget(self.nom)
         self.stackedWidget.addWidget(self.serv)
         self.stackedWidget.addWidget(self.turn)
-        self.stackedWidget.addWidget(self.eID)
-        self.stackedWidget.addWidget(self.yaAsc)
 
         self.showFullScreen()
 
@@ -471,12 +348,15 @@ class MainWindow(QMainWindow):
                 customerInfo = cursor.fetchall()
             if customerInfo: # Sets self.asociado to True if the customer's ID exists in the DB and is asociado
                 self.asociado = customerInfo[0][3] == 1
-                self.stackedWidget.setCurrentIndex(3) # Sends to layout 3 (SERVICIO)
-            else: self.stackedWidget.setCurrentIndex(2) # Sends to layout 2 (NOMBRE)
+                self.stackedWidget.setCurrentIndex(2) # Sends to layout 2 (SERVICIO)
+            else:
+                self.stackedWidget.setCurrentIndex(1) # Sends to layout 1 (NOMBRE)
+            self.prevIndex = 0
         else:
             pass # No number input
         self.lineID.setText("")
     
+    # Called when confirm button in NOMBRE layout is clicked
     def nom_confirm(self):
         self.nombre = self.lineNom.text().strip()
         if self.nombre:
@@ -491,37 +371,24 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 traceback.print_exc()
                 conn.rollback()
-            self.stackedWidget.setCurrentIndex(3)
+            self.stackedWidget.setCurrentIndex(2)
+            self.prevIndex = 1
         else:
             pass # No name input
         self.lineNom.setText("")
-
-    def ya_asc_confirm(self):
-        self.stackedWidget.setCurrentIndex(3)
-        self.asociado = True
-
-    def ced_return(self):
-        self.stackedWidget.setCurrentIndex(0)
-        self.lineID.setText("")
     
     def nom_return(self):
-        self.stackedWidget.setCurrentIndex(1)
+        self.stackedWidget.setCurrentIndex(self.prevIndex)
         self.lineNom.setText("")
     
     # Button to return from SERVICIO layout
     def serv_return(self):
-        if self.isAsc:
-            self.stackedWidget.setCurrentIndex(1)
-        else: self.stackedWidget.setCurrentIndex(2)
+        self.stackedWidget.setCurrentIndex(self.prevIndex)
+        self.prevIndex = 0 if self.prevIndex == 1 else self.prevIndex
 
     def go_to_ent(self):
         self.stackedWidget.setCurrentIndex(0)
-
-    def go_to_ced(self):
-        if self.sender().text() == "Sí":
-            self.isAsc = True
-        elif self.sender().text() == 'No': self.isAsc = False
-        self.stackedWidget.setCurrentIndex(1)
+        self.prevIndex = 0
 
     def go_to_turn(self):
         servicio = self.sender().text()
@@ -543,7 +410,8 @@ class MainWindow(QMainWindow):
                 self.queue['CT'].append(turnNumber)
                 self.turno.setText(f"CT-{turnNumber}")
         self.send_command(servicio)
-        self.stackedWidget.setCurrentIndex(4)
+        self.stackedWidget.setCurrentIndex(3)
+        self.prevIndex = 2
     
     def send_command(self, servicio):
         try:
