@@ -90,10 +90,31 @@ class MainWindow(QMainWindow):
 
         hBox3.addWidget(hBox3Widget)
 
+        # Logout and cancel buttons #
+        hBox4 = QHBoxLayout()
+        hBox4.setContentsMargins(10, 0, 10, 0)
+
+        buttonLogout = QPushButton("Cerrar sesión")
+        self.style_button(buttonLogout, 25, "#C9671C")
+        buttonLogout.clicked.connect(self.log_out)
+
+        buttonCancel = QPushButton("Cancelar turno")
+        self.style_button(buttonCancel, 25, "#A01919")
+
+        buttonLogout.setMinimumSize(100, 75)
+        buttonCancel.setMinimumSize(100, 75)
+        buttonLogout.setMaximumSize(200, 100)
+        buttonCancel.setMaximumSize(200, 100)
+
+        hBox4.addWidget(buttonLogout)
+        self.add_spacer(hBox4)
+        hBox4.addWidget(buttonCancel)
+
         # Add layouts to main layout
         layoutMain.addLayout(hBox1)
         layoutMain.addLayout(hBox2)
         layoutMain.addLayout(hBox3)
+        layoutMain.addLayout(hBox4)
 
     def add_pending_turn(self, servicio, numero, nombre=None):
         row = len(self.queue[servicio]) - 1
@@ -111,7 +132,7 @@ class MainWindow(QMainWindow):
             llamar = QPushButton("Llamar")
             llamar.setMinimumWidth(70)
             llamar.setMaximumSize(90, 100)
-            self.style_button(llamar)
+            self.style_button(llamar, 20)
 
             self.add_spacer(gridHbox)
             gridHbox.addWidget(turno)
@@ -123,6 +144,13 @@ class MainWindow(QMainWindow):
                 case 'CO': col = 2
                 case 'CT': col = 3
             self.gridTurns.addWidget(gridWidget, row, col)
+
+    def log_out(self):
+        self.close()
+        self.current_user = None
+        self.show_login()
+        if self.current_user:
+            self.show()
     
     def style_label(self, label, fontSize, color):
         styleSheet = f"""
@@ -134,12 +162,18 @@ class MainWindow(QMainWindow):
         label.setAlignment(Qt.AlignCenter)
         label.setStyleSheet(styleSheet)
     
-    def style_button(self, button):
+    def style_button(self, button, fontSize, color=None):
         styleSheet = f"""
             QPushButton {{
                 background-color: #669A0D;
                 color: white;
-                font-size: 20px;
+                font-size: {fontSize}px;
+            }}
+        """
+        if color:
+            styleSheet += f"""
+            QPushButton {{
+                background-color: {color};
             }}
         """
         button.setStyleSheet(styleSheet)
