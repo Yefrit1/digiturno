@@ -6,7 +6,7 @@ from PyQt5.QtGui import *
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-
+        self.screenGeometry = QApplication.primaryScreen().geometry()
         self.db_path = "digiturno.db"
         self.host = '192.168.0.54'
         self.port = 47529
@@ -15,7 +15,8 @@ class MainWindow(QMainWindow):
     
     def init_ui(self):
         self.setWindowTitle("Funcionario COOHEM")
-        self.setGeometry(10, 50, 900, 500)
+        self.setGeometry(int(self.screenGeometry.width()/2 - 450),
+                         int(self.screenGeometry.height()/2 - 300), 900, 600)
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         self.set_background_color(central_widget, '#EFE3C2')
@@ -114,6 +115,7 @@ class MainWindow(QMainWindow):
         layoutMain.addLayout(hBox1)
         layoutMain.addLayout(hBox2)
         layoutMain.addLayout(hBox3)
+        layoutMain.addStretch()
         layoutMain.addLayout(hBox4)
 
     def add_pending_turn(self, servicio, numero, nombre=None):
@@ -145,13 +147,6 @@ class MainWindow(QMainWindow):
                 case 'CT': col = 3
             self.gridTurns.addWidget(gridWidget, row, col)
 
-    def log_out(self):
-        self.close()
-        self.current_user = None
-        self.show_login()
-        if self.current_user:
-            self.show()
-    
     def style_label(self, label, fontSize, color):
         styleSheet = f"""
             QLabel {{
@@ -202,6 +197,13 @@ class MainWindow(QMainWindow):
             self.current_user = dialog.user_id
         elif not self.current_user: self.close()
 
+    def log_out(self):
+        self.close()
+        self.current_user = None
+        self.show_login()
+        if self.current_user:
+            self.show()
+
     def set_background_color(self, widget, color):
         palette = widget.palette()
         palette.setColor(QPalette.Background, QColor(color))
@@ -211,9 +213,11 @@ class MainWindow(QMainWindow):
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.screenGeometry = QApplication.primaryScreen().geometry()
         self.setWindowTitle("Iniciar sesión")
         self.setStyleSheet("background-color: #EFE3C2;")
-        self.setGeometry(600, 300, 400, 200)
+        self.setGeometry(int(self.screenGeometry.width()/2 - 200),
+                         int(self.screenGeometry.height()/2 - 100), 400, 200)
         self.layout = QVBoxLayout()
         
         self.username = QLineEdit()
