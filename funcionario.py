@@ -238,7 +238,7 @@ class LoginDialog(QDialog):
         conn = sqlite3.connect('digiturno.db')
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT id, is_admin FROM funcionarios
+            SELECT id, rol FROM funcionarios
             WHERE usuario = ? AND contrasena = ?
         ''', (self.username.text(), self.password.text()))
         result = cursor.fetchone()
