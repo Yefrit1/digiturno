@@ -162,6 +162,12 @@ class MainWindow(QMainWindow):
             label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         layout.addWidget(label)
 
+    def show_login(self):
+        dialog = LoginDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.current_user = dialog.user_id
+        elif not self.current_user: self.close()
+
     def set_background_color(self, widget, color):
         palette = widget.palette()
         palette.setColor(QPalette.Background, QColor(color))
@@ -172,7 +178,7 @@ class LoginDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Iniciar sesión")
-        #self.setStyleSheet("background-color: #3D5E31;")
+        self.setStyleSheet("background-color: #EFE3C2;")
         self.setGeometry(600, 300, 400, 200)
         self.layout = QVBoxLayout()
         
@@ -201,16 +207,15 @@ class LoginDialog(QDialog):
         conn.close()
         
         if result:
-            self.user_info = {
-                'id': result[0],
-                'is_admin': bool(result[1])
-            }
+            self.user_id = result[0]
             self.accept()
         else:
-            QMessageBox.warning(self, "Error", "Credenciales inválidas")
+            QMessageBox.warning(self, "Error", "Credenciales inválidas.")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
+    client = MainWindow()
+    client.show_login()
+    if client.current_user:
+        client.show()
     sys.exit(app.exec_())
