@@ -7,6 +7,7 @@ from PyQt5.QtGui import *
 db_path = 'digiturno.db'
 class TurnAlert(QLabel):
     def __init__(self, parent=None):
+        self.screenGeometry = QApplication.primaryScreen().geometry()
         super().__init__("Turno: 0", parent)
         self.setAlignment(Qt.AlignCenter)
         self.setStyleSheet("""
@@ -19,7 +20,7 @@ class TurnAlert(QLabel):
             border: 3px solid #3E7B27;
             border-radius: 30px;
         """)
-        self.setFixedSize(700, 500)
+        self.setFixedSize(int(self.screenGeometry.width()*0.4), int(self.screenGeometry.height()*0.5))
         # Opacity property
         self.opacityP = QGraphicsOpacityEffect(self)
         self.setGraphicsEffect(self.opacityP)
@@ -52,15 +53,25 @@ class BackgroundFrame(QFrame):
 class Digiturno(QMainWindow):
     command_received = pyqtSignal(str)
     def __init__(self):
+        self.screenGeometry = QApplication.primaryScreen().geometry()
         super().__init__()
         self.setWindowTitle("Digiturno")
         self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
         self.servingStations = {}
-        """Keys (int): id from funcionarios DB
+        """Keys (int): ID from funcionarios table
         Elements (tuple (Str, int)): Turn information: service type and number"""
         self.orderedServing = []
+        """Tuples (funcionario, turno, nombre)
+        funcionario (int): ID from funcionarios table
+        turno (Str): Turn information: service type and number
+        nombre (Str): Customer's name"""
         self.orderedQueue = []
-
+        """Tuples (servicio, numero):
+        servicio (Str): Service type
+        numero (int): Turn number"""
+        self.queueNames = {}
+        """Keys (Str): Turn information: service type and number ('AS-1')
+        Elements (Str): Customer's name"""
         self.init_ui()
         self.init_db()
         self.setup_rabbitmq()
@@ -80,7 +91,8 @@ class Digiturno(QMainWindow):
         mainLayout.setContentsMargins(0, 0, 0, 0)
         # Header layout
         headerLayout = QHBoxLayout()
-        headerLayout.setContentsMargins(20, 20, 20, 20)
+        headerLayout.setContentsMargins(self.screen_width(2), self.screen_height(3),
+                                        self.screen_width(2), self.screen_height(2))
         # Logo
         labelLogo = QLabel()
         pixmapLogo = QPixmap("logoCoohem.png")
@@ -88,13 +100,13 @@ class Digiturno(QMainWindow):
         logoShadow = QGraphicsDropShadowEffect(labelLogo, blurRadius=15)
         logoShadow.setOffset(5, 5)
         labelLogo.setGraphicsEffect(logoShadow)
-        headerLayout.addSpacing(20)
         headerLayout.addWidget(labelLogo)
         headerLayout.addStretch()
         # Clock
         self.clockLabel = QLabel()
-        self.clockLabel.setStyleSheet("""
-            font-size: 60px;
+        self.clockLabel.setAlignment(Qt.AlignTop)
+        self.clockLabel.setStyleSheet(f"""
+            font-size: {self.screen_width(3)}px;
             color: #002E08;
         """)
         clockShadow = QGraphicsDropShadowEffect(self.clockLabel, blurRadius=15)
@@ -111,13 +123,15 @@ class Digiturno(QMainWindow):
         # Grid layout for serving turns
         self.gridLayout = QGridLayout()
         self.gridLayout.setAlignment(Qt.AlignTop | Qt.AlignCenter)
-        self.gridLayout.setHorizontalSpacing(170)
-        self.gridLayout.setVerticalSpacing(5)
-        self.gridLayout.setContentsMargins(5, 5, 5, 5)
+        self.gridLayout.setHorizontalSpacing(self.screen_width(4))
+        self.gridLayout.setVerticalSpacing(self.screen_height(25))
+        self.gridLayout.setContentsMargins(self.screen_width(5), self.screen_height(5),
+                                           self.screen_width(5), 0)
         # HBox for waiting
         self.waitLayout = QHBoxLayout()
-        self.waitLayout.setContentsMargins(150, 20, 20, 20)
-        self.waitLayout.setSpacing(10)
+        self.waitLayout.setContentsMargins(self.screen_width(5), 0,
+                                           self.screen_width(5), self.screen_height(4))
+        self.waitLayout.setSpacing(self.screen_width(1))
         self.waitLayout.setAlignment(Qt.AlignBottom | Qt.AlignLeft)
         self.waitHeader = QHBoxLayout()
         self.waitLabels = QHBoxLayout()
@@ -127,19 +141,6 @@ class Digiturno(QMainWindow):
         labelQueue = QLabel("En cola:")
         self.style_header(labelQueue)
         self.waitHeader.addWidget(labelQueue)
-        # Headers
-        """
-        self.add_header("Caja 1", 0, 0, 1)
-        self.add_header("Caja 2", 0, 1, 1)
-        self.add_header("Asesor 1", 0, 2, 1)
-        self.add_header("Asesor 2", 0, 3, 1)
-        self.add_header("Asesor 3", 0, 4, 1)
-        self.add_header("Asesor 4", 0, 0, 2)
-        self.add_header("Asesor 5", 0, 1, 2)
-        self.add_header("Cartera", 0, 2, 2)
-        self.add_header("Cobranza", 0, 3, 2)
-        self.add_header("En cola", 0, 0, 3)
-        """
         # Turn display box
         self.turnAlert = TurnAlert(self)
         self.position_turn_alert()
@@ -153,17 +154,23 @@ class Digiturno(QMainWindow):
         verticalLayout.addLayout(self.waitLayout)
 
     def handle_command(self, command):
-        """Handles incoming commands"""
+        """Handle incoming commands. Parameters:
+        
+        command (Str): Body of the message"""
+        print(f"Command received: {command}")
         if command.startswith('NEW_TURN:'):
             _, cliente_id, servicio = command.split(':')
+            self.new_turn(cliente_id, servicio)
+            self.new_turn(cliente_id, servicio)
+            self.new_turn(cliente_id, servicio)
             self.new_turn(cliente_id, servicio)
             print(f"New turn received for {servicio}") # Debug
         # Handle command for next turn
         elif command.startswith('NEXT_TURN:'):
-            _, turno, funcionario = command.split(':')
+            _, funcionario, turno = command.split(':')
             servicio, numero = turno.split('-')
             print(f"{funcionario} calling turn {turno}")  # Debug
-            self.next_turn(int(funcionario), servicio, numero)
+            self.next_turn(int(funcionario), servicio, int(numero))
         # Handle command for cancel turn
         elif command.startswith('CANCEL_TURN:'):
             _, funcionario = command.split(':')
@@ -183,18 +190,20 @@ class Digiturno(QMainWindow):
                 result = cursor.fetchone()[0] # Fetch last turn number
                 numero = int(result)+1 if result is not None else 1 # New turn number
                 cursor.execute('''
+                    SELECT nombre FROM clientes
+                    WHERE identificacion = ?
+                ''', (cedula,))
+                nombre = cursor.fetchone()[0]
+                cursor.execute('''
                     INSERT INTO turnos (cliente_id, servicio, numero, estado, creado)
                     VALUES ((SELECT id FROM clientes WHERE identificacion = ?),
                         ?, ?, 'pendiente', datetime('now'))''', (cedula, servicio, numero))
                 conn.commit()
                 self.queue[servicio].append(numero)
                 self.orderedQueue.append((servicio, numero))
+                self.queueNames[f'{servicio}-{numero}'] = nombre
                 print(f"Ordered turns: {self.orderedQueue}") # Debug
-                cursor.execute('''
-                    SELECT nombre FROM clientes
-                    WHERE identificacion = ?
-                ''', (cedula,))
-                nombre = cursor.fetchone()[0]
+                
                 self.update_waiting()
                 self.broadcast_update(f"NEW_TURN:{servicio}-{numero}:{nombre}")
             except:
@@ -210,27 +219,33 @@ class Digiturno(QMainWindow):
         servicio (Str): Turn's service type
         
         numero (int): Turn number"""
+        turno = f'{servicio}-{numero}'
         with sqlite3.connect(db_path) as conn:
             try:
                 conn.cursor().execute('''
-                    WITH updated_turnos AS (
-                        UPDATE turnos
-                        SET estado = 'atendido', llamado = datetime('now')
-                        WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
-                        RETURNING *)
+                    UPDATE turnos
+                    SET estado = 'atendido', llamado = datetime('now')
+                    WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
+                ''', (servicio, numero))
+                conn.cursor().execute('''
                     UPDATE funcionarios
                     SET atendidos_hoy = atendidos_hoy + 1,
                         atendidos = atendidos + 1
                     WHERE id = ?
-                ''', (servicio, numero, funcionario))
+                ''', (funcionario,))
                 conn.commit()
+                nombre = self.queueNames[turno]
+                self.orderedServing.append((funcionario, turno, nombre))
+                self.servingStations[funcionario] = (servicio, numero)
+
+                del self.queueNames[turno]
                 self.queue[servicio].remove(numero)
                 self.orderedQueue.remove((servicio, numero))
-                self.servingStations[funcionario] = (servicio, numero)
                 print(f"Ordered turns: {self.orderedQueue}") # Debug
                 self.update_serving()
                 self.update_waiting()
-                self.show_alert(servicio, numero, funcionario)
+                self.show_alert(servicio, numero, funcionario, nombre)
+                self.broadcast_update(f"ACK_NEXT_TURN:")
             except:
                 traceback.print_exc()
                 print("^Error calling next turn. Read traceback above^")
@@ -260,6 +275,7 @@ class Digiturno(QMainWindow):
                     ''', (servicio, numero, funcionario))
                     conn.commit()
                     self.servingStations[funcionario] = None
+                    
                 except:
                     traceback.print_exc()
                     print(f"^Error canceling turn for {funcionario}. Read traceback above^")
@@ -269,15 +285,16 @@ class Digiturno(QMainWindow):
         """Update UI with turns that are currently being served"""
         self.clear_grid(self.gridLayout)  
         col = 0  
-        for funcionario, turno, nombre in self.servingTurns[::-1]: # Iterate over the inverted list to display last turn first
+        for funcionario, turno, nombre in self.orderedServing[::-1]: # Iterate over the inverted list to display last turn first
             if col > 10: break
-            turn = QLabel(f"{funcionario}<br>{turno}<br>{nombre}")
+            turn = QLabel(f"Funcionario {funcionario}<br>{turno}<br>{nombre}")
             self.style_label(turn, True)
             if col < 5:
                 self.gridLayout.addWidget(turn, 0, col)
             elif col < 10:
-                self.gridLayout.addWidget(turn, 1, col)
+                self.gridLayout.addWidget(turn, 1, col-5)
             col += 1
+            print("updated grid")
 
     def clear_grid(self, layout):
         """Remove all widgets from a grid layout"""
@@ -310,18 +327,24 @@ class Digiturno(QMainWindow):
 
     def load_pending(self):
         """Load pending turns created today from DB"""
-        self.cursor.execute('''
-            SELECT servicio, numero
-            FROM turnos
-            WHERE estado = 'pendiente'
-            AND DATE(creado) = DATE('now')
-            ORDER BY creado
-                            ''')
-        self.orderedQueue = self.cursor.fetchall() # Gets turns sorted by creation order
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT t.servicio, t.numero, c.nombre
+                FROM turnos t
+                JOIN clientes c ON t.cliente_id = c.id
+                WHERE t.estado = 'pendiente'
+                AND DATE(t.creado) = DATE('now')
+                ORDER BY t.creado
+            ''')
+            for servicio, numero, nombre in cursor.fetchall():
+                self.queueNames[f'{servicio}-{numero}'] = nombre
+                self.orderedQueue.append((servicio, numero))
         print(f"Ordered pending turns: {self.orderedQueue}")
+        print(f"Ordered turns with names: {self.queueNames}")
         self.update_waiting()
 
-    def show_alert(self, servicio, numero, funcionario):
+    def show_alert(self, servicio, numero, funcionario, nombre):
         """Shows turn alert"""
         stationText = ""
         match funcionario:
@@ -336,8 +359,9 @@ class Digiturno(QMainWindow):
             case 9: stationText = "Cobranza"
         self.turnAlert.setText(f"""
             <div style='text-align: center;'>
-                <span style='font-size: 250px; font-weight: bold;'>{servicio}-{numero}</span><br>
-                <span style='font-size: 80px;'>Funcionario {funcionario}</span>
+                <span style='font-size: {self.screen_width(5)}px; font-weight: bold;'>Funcionario {funcionario}</span><br>
+                <span style='font-size: {self.screen_width(10)}px; font-weight: bold;'>{servicio}-{numero}</span><br>
+                <span style='font-size: {self.screen_width(4)}px;'>{nombre}</span>
             </div>
                                  """)
         self.turnAlert.show_box()
@@ -363,8 +387,6 @@ class Digiturno(QMainWindow):
                 font-size: 50px;
                 font-weight: bold;
                 padding: 10px;
-                min-width: 165px;
-                min-height: 110px;
             }}"""
         if serving:
             styleSheet += f"""
@@ -372,7 +394,9 @@ class Digiturno(QMainWindow):
                     background: qlineargradient(
                         x1:0.5, y1:0, x2:0.5, y2:1,
                         stop:0 #85A947, stop:1 #3E7B27
-                    );}}"""
+                    );
+                    font-size: 30px;}}"""
+            label.setFixedWidth(self.screen_width(13))
         label.setStyleSheet(styleSheet)
         label.setAlignment(Qt.AlignCenter)
         labelShadow = QGraphicsDropShadowEffect(label, blurRadius=5)
@@ -389,7 +413,7 @@ class Digiturno(QMainWindow):
                 background-image: none;
                 border-radius: 5px;
                 color: white;
-                font-size: 30px;
+                font-size: {self.screen_width(2)}px;
                 padding: 10px;
                 min-width: 165px;
                 min-height: 110px;
@@ -411,12 +435,19 @@ class Digiturno(QMainWindow):
     
     # Formats clock and keeps it on time
     def update_clock(self):
-        currentTime = datetime.now().strftime("%H:%M")
+        currentTime = datetime.now().strftime("%I:%M")
         if int(datetime.now().strftime("%H")) >= 12:
             currentTime += " p.m."
         else:
             currentTime += " a.m."
         self.clockLabel.setText(currentTime)
+
+    # Returns pixel value of screen width % based on parameter
+    def screen_width(self, num):
+        return int(self.screenGeometry.width()*num/100)
+    # Returns pixel value of screen height % based on parameter
+    def screen_height(self, num):
+        return int(self.screenGeometry.height()*num/100)
     
     # Initializes DB
     def init_db(self):
