@@ -11,8 +11,7 @@ class MainWindow(QMainWindow):
         self.screenGeometry = QApplication.primaryScreen().geometry()
         self.db_path = "digiturno.db"
         self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
-        self.station = None
-        self.currentUser = None
+        self.userID = None
         self.shutdownFlag = False
         self.connectionLock = threading.Lock()
         self.pendingRequests = {}
@@ -273,8 +272,8 @@ class MainWindow(QMainWindow):
     def show_login(self):
         dialog = LoginDialog(self)
         if dialog.exec_() == QDialog.Accepted:
-            self.currentUser = dialog.user_id
-            self.labelTitle.setText(f"Funcionario {self.currentUser}")
+            self.userID = dialog.userID
+            self.labelTitle.setText(f"Funcionario {self.userID}")
             self.show()
         else:
             self.close()
@@ -286,7 +285,7 @@ class MainWindow(QMainWindow):
         self.cleanup_connections()
         
         self.shutdownFlag = False
-        self.currentUser = None
+        self.userID = None
         self.close()
         self.show_login()
 
@@ -396,11 +395,16 @@ class MainWindow(QMainWindow):
             print(f"Error processing broadcast: {e}")
 
     def call_next_turn(self, servicio, numero):
+        """Send message to call next turn. Parameters:
+        
+        servicio (Str): Turn's service type
+        
+        numero (int): Turn number"""
         try:
             self.command_channel.basic_publish(
                 exchange='digiturno_direct',
                 routing_key='server_command',
-                body=f'CALL:{servicio}-{numero}:{self.station}')
+                body=f'NEXT_TURN:{self.userID}:{servicio}-{numero}')
             self.update_grid(servicio, numero)
         except Exception as e:
             print(f"Error calling next turn: {e}")
@@ -414,7 +418,7 @@ class MainWindow(QMainWindow):
                 self.command_channel.basic_publish(
                     exchange='digiturno_direct',
                     routing_key='server_command',
-                    body=f'COMPLETE:{servicio}-{numero}:{self.station}')
+                    body=f'COMPLETE_TURN:{self.userID}')
                 self.labelTurno.setText("Sample turn text")
             except Exception as e:
                 print(f"Error completing turn: {e}")
@@ -428,7 +432,7 @@ class MainWindow(QMainWindow):
                 self.command_channel.basic_publish(
                     exchange='digiturno_direct',
                     routing_key='server_command',
-                    body=f'CANCEL:{servicio}-{numero}:{self.station}')
+                    body=f'CANCEL_TURN:{self.userID}')
                 self.labelTurno.setText("Sample turn text")
             except Exception as e:
                 print(f"Error canceling turn: {e}")
@@ -469,7 +473,7 @@ class LoginDialog(QDialog):
         conn.close()
         
         if result:
-            self.user_id = result[0]
+            self.userID = result[0]
             self.accept()
         else:
             QMessageBox.warning(self, "Error", "Credenciales inválidas.")
