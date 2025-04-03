@@ -1,4 +1,4 @@
-import sys, sqlite3, socket, traceback
+import sys, sqlite3, traceback, pika
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
@@ -21,8 +21,6 @@ class MainWindow(QMainWindow):
         self.cedula = ""
         self.asociado = False
         self.queue = {'AS': [0], 'CA': [0], 'CO': [0], 'CT': [0]}
-        self.host = '192.168.0.54'
-        self.port = 47529
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
@@ -391,38 +389,48 @@ class MainWindow(QMainWindow):
         self.prevIndex = 0
 
     def go_to_turn(self):
-        servicio = self.sender().text()
-        match servicio:
+        servicioTxt = self.sender().text()
+        match servicioTxt:
             case 'Asesoría':
-                turnNumber = self.queue['AS'][-1]+1
-                self.queue['AS'].append(turnNumber)
-                self.turno.setText(f"AS-{turnNumber}")
+                servicio = 'AS'
+                turnNumber = self.queue[servicio][-1]+1
+                self.queue[servicio].append(turnNumber)
+                self.turno.setText(f"{servicio}-{turnNumber}")
             case 'Caja':
-                turnNumber = self.queue['CA'][-1] + 1
-                self.queue['CA'].append(turnNumber)
-                self.turno.setText(f"CA-{turnNumber}")
+                servicio = 'CA'
+                turnNumber = self.queue[servicio][-1] + 1
+                self.queue[servicio].append(turnNumber)
+                self.turno.setText(f"{servicio}-{turnNumber}")
             case 'Cobranza':
-                turnNumber = self.queue['CO'][-1] + 1
-                self.queue['CO'].append(turnNumber)
-                self.turno.setText(f"CO-{turnNumber}")
+                servicio = 'CO'
+                turnNumber = self.queue[servicio][-1] + 1
+                self.queue[servicio].append(turnNumber)
+                self.turno.setText(f"{servicio}-{turnNumber}")
             case 'Cartera':
-                turnNumber = self.queue['CT'][-1] + 1
-                self.queue['CT'].append(turnNumber)
-                self.turno.setText(f"CT-{turnNumber}")
+                servicio = 'CT'
+                turnNumber = self.queue[servicio][-1] + 1
+                self.queue[servicio].append(turnNumber)
+                self.turno.setText(f"{servicio}-{turnNumber}")
         self.send_command(servicio)
         self.stackedWidget.setCurrentIndex(3)
         self.prevIndex = 2
     
     def send_command(self, servicio):
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect((self.host, self.port))
-                match servicio:
-                    case 'Asesoría': s.sendall(f"NEWTICKET_{self.cedula}_AS".encode('utf-8'))
-                    case 'Caja': s.sendall(f"NEWTICKET_{self.cedula}_CA".encode('utf-8'))
-                    case 'Cobranza': s.sendall(f"NEWTICKET_{self.cedula}_CO".encode('utf-8'))
-                    case 'Cartera': s.sendall(f"NEWTICKET_{self.cedula}_CT".encode('utf-8'))
+            connection = pika.BlockingConnection(
+                pika.ConnectionParameters('localhost'))
+            channel = connection.channel()
+            
+            channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'NEW_TURN:{self.cedula}:{servicio}',
+                properties=pika.BasicProperties(
+                    delivery_mode=2  # Make message persistent
+                ))
+            connection.close()
         except Exception as e:
+            print(f"Failed to send message: {e}")
             traceback.print_exc()
     
     # Sets stylesheet for a label
@@ -538,6 +546,24 @@ class MainWindow(QMainWindow):
     # Returns pixel value of screen height % based on parameter
     def screen_height(self, num):
         return int(self.screenGeometry.height()*num/100)
+    
+    def send_turn_request(self, servicio):
+        try:
+            connection = pika.BlockingConnection(
+                pika.ConnectionParameters('localhost'))
+            channel = connection.channel()
+            
+            channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'NEWTURN_{self.cedula}_{servicio[:2].upper()}',
+                properties=pika.BasicProperties(
+                    delivery_mode=2  # Make message persistent
+                ))
+            
+            connection.close()
+        except:
+            traceback.print_exc()
     
 if __name__ == "__main__":
     app = QApplication(sys.argv)

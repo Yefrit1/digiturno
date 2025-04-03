@@ -1,9 +1,10 @@
-import sys, traceback, sqlite3, socket, threading, random
+import sys, traceback, sqlite3, threading, pika
 from datetime import datetime
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 
+db_path = 'digiturno.db'
 class TurnAlert(QLabel):
     def __init__(self, parent=None):
         super().__init__("Turno: 0", parent)
@@ -54,15 +55,19 @@ class Digiturno(QMainWindow):
         super().__init__()
         self.setWindowTitle("Digiturno")
         self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
-        self.serving = {'1': [], '2': [], '3': [], '4': [], '5': [], '6': [], '7': [], '8': [], '9': []}
+        self.servingStations = {}
+        """Keys (int): id from funcionarios DB
+        Elements (tuple (Str, int)): Turn information: service type and number"""
+        self.orderedServing = []
+        self.orderedQueue = []
 
         self.init_ui()
         self.init_db()
+        self.setup_rabbitmq()
         self.command_received.connect(self.handle_command)
-        self.init_display()
+        self.load_pending()
         
         self.showFullScreen()
-        self.start_server()
 
     def init_ui(self):
         # Central widget setup
@@ -103,18 +108,12 @@ class Digiturno(QMainWindow):
         verticalLayout = QVBoxLayout()
         #verticalLayout.setAlignment(Qt.AlignTop)
         content_frame.setLayout(verticalLayout)
-        # Grid layout 1 (stations 1 - 5)
-        self.gridLayout1 = QGridLayout()
-        self.gridLayout1.setAlignment(Qt.AlignTop | Qt.AlignCenter)
-        self.gridLayout1.setHorizontalSpacing(170)
-        self.gridLayout1.setVerticalSpacing(5)
-        self.gridLayout1.setContentsMargins(5, 5, 5, 5)
-        # Grid layout 2 (stations 6 - 9)
-        self.gridLayout2 = QGridLayout()
-        self.gridLayout2.setAlignment(Qt.AlignTop | Qt.AlignCenter)
-        self.gridLayout2.setHorizontalSpacing(170)
-        self.gridLayout2.setVerticalSpacing(5)
-        self.gridLayout2.setContentsMargins(5, 5, 5, 5)
+        # Grid layout for serving turns
+        self.gridLayout = QGridLayout()
+        self.gridLayout.setAlignment(Qt.AlignTop | Qt.AlignCenter)
+        self.gridLayout.setHorizontalSpacing(170)
+        self.gridLayout.setVerticalSpacing(5)
+        self.gridLayout.setContentsMargins(5, 5, 5, 5)
         # HBox for waiting
         self.waitLayout = QHBoxLayout()
         self.waitLayout.setContentsMargins(150, 20, 20, 20)
@@ -124,7 +123,12 @@ class Digiturno(QMainWindow):
         self.waitLabels = QHBoxLayout()
         self.waitLayout.addLayout(self.waitHeader)
         self.waitLayout.addLayout(self.waitLabels)
+
+        labelQueue = QLabel("En cola:")
+        self.style_header(labelQueue)
+        self.waitHeader.addWidget(labelQueue)
         # Headers
+        """
         self.add_header("Caja 1", 0, 0, 1)
         self.add_header("Caja 2", 0, 1, 1)
         self.add_header("Asesor 1", 0, 2, 1)
@@ -135,6 +139,7 @@ class Digiturno(QMainWindow):
         self.add_header("Cartera", 0, 2, 2)
         self.add_header("Cobranza", 0, 3, 2)
         self.add_header("En cola", 0, 0, 3)
+        """
         # Turn display box
         self.turnAlert = TurnAlert(self)
         self.position_turn_alert()
@@ -144,107 +149,167 @@ class Digiturno(QMainWindow):
         self.timeUpdateTimer.start(1000)
         self.update_clock()
         # Add grids to vertical layout
-        verticalLayout.addLayout(self.gridLayout1)
-        verticalLayout.addLayout(self.gridLayout2)
+        verticalLayout.addLayout(self.gridLayout)
         verticalLayout.addLayout(self.waitLayout)
 
-    def start_server(self):
-        self.server_thread = threading.Thread(target=self.run_server, daemon=True)
-        self.server_thread.start()
-    
-    def run_server(self):
-        HOST = '0.0.0.0'
-        PORT = 47529
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.bind((HOST, PORT))
-                s.listen()
-                print(f"Server listening on {HOST}:{PORT}")  # Debug
-                while True:
-                    conn, addr = s.accept()
-                    with conn:
-                        print(f"Connected by {addr}")  # Debug
-                        data = conn.recv(1024).decode('utf-8').strip()
-                        if data:
-                            print(f"Received command: {data}")  # Debug
-                            self.command_received.emit(data)
-        except Exception as e:
-            print(f"Server error: {e}")
-
     def handle_command(self, command):
-        # Handle command for next turn
-        if command.startswith('NEXT_'):
-            station = command.split('_')[1]
-            print(f"Calling next turn for {station}")  # Debug
-            self.next_turn(int(station))
-        # Handle command for cancel turn
-        elif command.startswith('CANCEL_'):
-            station = command.split('_')[1]
-            print(f"Canceling current turn in {station}") # Debug
-            self.cancel_turn(int(station))
-        # Handle command for new ticket
-        elif command.startswith('NEWTICKET_'):
-            _, cliente_id, servicio = command.split('_')
+        """Handles incoming commands"""
+        if command.startswith('NEW_TURN:'):
+            _, cliente_id, servicio = command.split(':')
             self.new_turn(cliente_id, servicio)
-            print("Command recieved")
+            print(f"New turn received for {servicio}") # Debug
+        # Handle command for next turn
+        elif command.startswith('NEXT_TURN:'):
+            _, turno, funcionario = command.split(':')
+            servicio, numero = turno.split('-')
+            print(f"{funcionario} calling turn {turno}")  # Debug
+            self.next_turn(int(funcionario), servicio, numero)
+        # Handle command for cancel turn
+        elif command.startswith('CANCEL_TURN:'):
+            _, funcionario = command.split(':')
+            print(f"{funcionario} canceling current turn") # Debug
+            self.cancel_turn(int(funcionario))
 
     def new_turn(self, cedula, servicio):
+        """Handles new turns"""
         fechaHoy = datetime.now().strftime("%Y-%m-%d")
-        try:
-            self.cursor.execute('''
-                SELECT MAX(numero) FROM turnos
-                WHERE servicio = ? AND DATE(creado) = ?
-                                ''', (servicio, fechaHoy))
-            result = self.cursor.fetchone()[0]
-            lastNum = int(result) if result is not None else 0
-            newNum = lastNum + 1
-            # Insert turn to DB
-            self.cursor.execute('''
-                INSERT INTO turnos (cliente_id, servicio, numero, estado, creado)
-                VALUES (
-                    (SELECT id FROM clientes WHERE identificacion = ?),
-                    ?, ?, 'pendiente', datetime('now'))''', (cedula, servicio, newNum))
-            self.conn.commit()
-            # Add turn to queue and grid
-            self.queue[servicio].append(newNum)
-            self.orderedTurns.append((servicio, newNum))
-            print(f"Ordered turns: {self.orderedTurns}")
-            self.update_waiting()
+        with sqlite3.connect(db_path) as conn:
+            try:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT MAX(numero) FROM turnos
+                    WHERE servicio = ? AND DATE(creado) = ?
+                ''', (servicio, fechaHoy))
+                result = cursor.fetchone()[0] # Fetch last turn number
+                numero = int(result)+1 if result is not None else 1 # New turn number
+                cursor.execute('''
+                    INSERT INTO turnos (cliente_id, servicio, numero, estado, creado)
+                    VALUES ((SELECT id FROM clientes WHERE identificacion = ?),
+                        ?, ?, 'pendiente', datetime('now'))''', (cedula, servicio, numero))
+                conn.commit()
+                self.queue[servicio].append(numero)
+                self.orderedQueue.append((servicio, numero))
+                print(f"Ordered turns: {self.orderedQueue}") # Debug
+                cursor.execute('''
+                    SELECT nombre FROM clientes
+                    WHERE identificacion = ?
+                ''', (cedula,))
+                nombre = cursor.fetchone()[0]
+                self.update_waiting()
+                self.broadcast_update(f"NEW_TURN:{servicio}-{numero}:{nombre}")
+            except:
+                traceback.print_exc()
+                print("^Error handling new turn. Read traceback above^")
+                conn.rollback()
+    
+    def next_turn(self, funcionario, servicio, numero):
+        """Updates queue, serving and DB when a turn is called. Parameters:
+        
+        funcionario (int): id from funcionarios DB
+        
+        servicio (Str): Turn's service type
+        
+        numero (int): Turn number"""
+        with sqlite3.connect(db_path) as conn:
+            try:
+                conn.cursor().execute('''
+                    WITH updated_turnos AS (
+                        UPDATE turnos
+                        SET estado = 'atendido', llamado = datetime('now')
+                        WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
+                        RETURNING *)
+                    UPDATE funcionarios
+                    SET atendidos_hoy = atendidos_hoy + 1,
+                        atendidos = atendidos + 1
+                    WHERE id = ?
+                ''', (servicio, numero, funcionario))
+                conn.commit()
+                self.queue[servicio].remove(numero)
+                self.orderedQueue.remove((servicio, numero))
+                self.servingStations[funcionario] = (servicio, numero)
+                print(f"Ordered turns: {self.orderedQueue}") # Debug
+                self.update_serving()
+                self.update_waiting()
+                self.show_alert(servicio, numero, funcionario)
+            except:
+                traceback.print_exc()
+                print("^Error calling next turn. Read traceback above^")
+                conn.rollback()
 
-        except Exception as e:
-            print(f"Error creating ticket: {e}")
-            self.conn.rollback()
+    def cancel_turn(self, funcionario):
+        """Cancel serving turn for funcionario. Updates DB and calls update_serving.
+        Parameters:
+        
+        funcionario (int): id from funcionarios table"""
+        if funcionario in self.servingStations and self.servingStations[funcionario]:
+            servicio, numero = self.servingStations[funcionario]
+            with sqlite3.connect(db_path) as conn:
+                try:
+                    conn.cursor().execute('''
+                        WITH updated_turnos AS (
+                            UPDATE turnos
+                            SET estado = 'cancelado'
+                            WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
+                            RETURNING *)
+                        UPDATE funcionarios
+                        SET atendidos_hoy = atendidos_hoy - 1,
+                            atendidos = atendidos - 1,
+                            cancelados_hoy = cancelados_hoy + 1,
+                            cancelados = cancelados + 1
+                        WHERE id = ?
+                    ''', (servicio, numero, funcionario))
+                    conn.commit()
+                    self.servingStations[funcionario] = None
+                except:
+                    traceback.print_exc()
+                    print(f"^Error canceling turn for {funcionario}. Read traceback above^")
+                    conn.rollback()
+
+    def update_serving(self):
+        """Update UI with turns that are currently being served"""
+        self.clear_grid(self.gridLayout)  
+        col = 0  
+        for funcionario, turno, nombre in self.servingTurns[::-1]: # Iterate over the inverted list to display last turn first
+            if col > 10: break
+            turn = QLabel(f"{funcionario}<br>{turno}<br>{nombre}")
+            self.style_label(turn, True)
+            if col < 5:
+                self.gridLayout.addWidget(turn, 0, col)
+            elif col < 10:
+                self.gridLayout.addWidget(turn, 1, col)
+            col += 1
+
+    def clear_grid(self, layout):
+        """Remove all widgets from a grid layout"""
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+                item.widget().setGraphicsEffect(None)
+                layout.removeItem(item)
     
-    def next_turn(self, station):
-        service = self.match_service(station)
-        if self.queue[service]:
-            nextTurn = self.queue[service].pop(0)
-            self.serving[station] = nextTurn
-            # Updates current turn status to "atendido" in DB
-            self.cursor.execute('''
-                UPDATE turnos SET estado = 'atendido', llamado = datetime('now')
-                WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
-                                ''', (service, nextTurn))
-            self.cursor.execute('''
-                UPDATE funcionarios SET atendidos_hoy = atendidos_hoy + 1
-                WHERE id = ?
-                                ''', (station,))
-            self.conn.commit()
-            self.orderedTurns.remove((service, nextTurn))
-            print(f"Ordered turns: {self.orderedTurns}")
-            self.update_serving(station)
-            self.update_waiting()
-            self.show_alert(station, nextTurn)
-        else:
-            self.serving[station] = None
-            self.update_serving(station)
-            self.update_waiting()
-            print(f"No hay turnos en espera para el servicio {service}")
+    def update_waiting(self):
+        """Update UI for turns in queue"""
+        self.clear_waitLabels()
+        counter = 0
+        for servicio, numero in self.orderedQueue:
+            if counter < 7:
+                turn = QLabel(f"{servicio}-{numero}")
+                self.style_label(turn)
+                self.waitLabels.addWidget(turn)
+            else: print("No more space for waiting labels")
+            counter += 1
     
-    # Loads data from DB if created today
-    def init_display(self):
-        # Sort turns by creation order
+    def clear_waitLabels(self):
+        """Clear UI from waiting turns. Removes widgets from waitLabels"""
+        while self.waitLabels.count():
+            child = self.waitLabels.takeAt(0)
+            if child.widget():
+                child.widget().setGraphicsEffect(None)
+                child.widget().deleteLater()
+
+    def load_pending(self):
+        """Load pending turns created today from DB"""
         self.cursor.execute('''
             SELECT servicio, numero
             FROM turnos
@@ -252,112 +317,14 @@ class Digiturno(QMainWindow):
             AND DATE(creado) = DATE('now')
             ORDER BY creado
                             ''')
-        self.orderedTurns = self.cursor.fetchall()
-        print(f"Ordered turns: {self.orderedTurns}")
+        self.orderedQueue = self.cursor.fetchall() # Gets turns sorted by creation order
+        print(f"Ordered pending turns: {self.orderedQueue}")
         self.update_waiting()
 
-    # Updates displayed turns in serving
-    def update_serving(self, station, init_mode=False):
-        col = station - 1
-        # Calls in next turn to serve
-        if not init_mode:
-            # First 5 stations
-            if col < 5:
-                itemToRemove = self.gridLayout1.itemAtPosition(1, col)
-                if itemToRemove:
-                    widget = itemToRemove.widget()
-                    widget.deleteLater()
-                    widget.setGraphicsEffect(None) # Removes shadow effect to prevent lingering
-                    #widget.graphicsEffect().setEnabled(False) Use this instead of the line above if it presents any issues
-                    self.gridLayout1.removeItem(itemToRemove)
-                else: # Use this block to show feedback when the station is empty
-                    pass
-                if self.serving[station]:
-                    ticket = QLabel(f"{self.match_service(station)}-{self.serving[station]}")
-                    self.style_label(ticket, True)
-                    self.gridLayout1.addWidget(ticket, 1, col)
-            # Last 4 stations
-            elif col > 4:
-                col -= 5
-                itemToRemove = self.gridLayout2.itemAtPosition(1, col)
-                if itemToRemove:
-                    widget = itemToRemove.widget()
-                    widget.deleteLater()
-                    widget.setGraphicsEffect(None) # Removes shadow effect to prevent lingering
-                    #widget.graphicsEffect().setEnabled(False) Use this instead of the line above if it presents any issues
-                    self.gridLayout2.removeItem(itemToRemove)
-                else: # Use this block to show feedback when the station is empty
-                    pass
-                # Add new ticket being served
-                if self.serving[station]:
-                    ticket = QLabel(f"{self.match_service(station)}-{self.serving[station]}")
-                    self.style_label(ticket, True)
-                    self.gridLayout2.addWidget(ticket, 1, col)
-    
-    # Updates displayed turns in waiting
-    def update_waiting(self):
-        self.clear_waitLabels()
-        # Add all waiting turns to layout
-        counter = 0
-        for servicio, numero in self.orderedTurns:
-            if counter < 7:
-                turn = QLabel(f"{servicio}-{numero}")
-                self.style_label(turn, False)
-                self.waitLabels.addWidget(turn)
-            else: print("No more space for waiting labels")
-            counter += 1
-    
-    # Removes widgets from waitLabels
-    def clear_waitLabels(self):
-        while self.waitLabels.count():
-            child = self.waitLabels.takeAt(0)
-            if child.widget():
-                child.widget().setGraphicsEffect(None)
-                child.widget().deleteLater()
-
-    # Cancels serving turn
-    def cancel_turn(self, station):
-        col = station - 1
-        service = self.match_service(station)
-        if self.serving[station]:
-            turn = self.serving[station]
-            self.serving[station] = None
-            self.cursor.execute('''
-                UPDATE turnos SET estado = 'cancelado'
-                WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
-                                ''', (service, turn))
-            self.cursor.execute('''
-                UPDATE estaciones SET atendidos_hoy = atendidos_hoy - 1,
-                    cancelados_hoy = cancelados_hoy + 1
-                WHERE id = ?
-                                ''', (station,))
-            self.conn.commit()
-            if col < 5:
-                item = self.gridLayout1.itemAtPosition(1, col)
-                item.widget().deleteLater()
-                item.widget().setGraphicsEffect(None)
-                print(f"Canceled turn in {station}")
-            elif col > 4:
-                col -= 5
-                item = self.gridLayout2.itemAtPosition(1, col)
-                item.widget().deleteLater()
-                item.widget().setGraphicsEffect(None)
-                print(f"Canceled turn in {station}")
-        else: print("No turns to cancel.")
-
-    # Takes station and returns service
-    def match_service(self, station):
-        match station:
-            case 1 | 2: return 'P'
-            case 3 | 4 | 5 | 6 | 7: return 'Q'
-            case 8: return 'R'
-            case 9: return 'S'
-
-    # Shows turn alert
-    def show_alert(self, station, turnNumber):
+    def show_alert(self, servicio, numero, funcionario):
+        """Shows turn alert"""
         stationText = ""
-        service = self.match_service(station)
-        match station:
+        match funcionario:
             case 1: stationText = "Caja 1"
             case 2: stationText = "Caja 2"
             case 3: stationText = "Asesor 1"
@@ -369,59 +336,53 @@ class Digiturno(QMainWindow):
             case 9: stationText = "Cobranza"
         self.turnAlert.setText(f"""
             <div style='text-align: center;'>
-                <span style='font-size: 250px; font-weight: bold;'>{service}-{turnNumber}</span><br>
-                <span style='font-size: 80px;'>{stationText}</span>
+                <span style='font-size: 250px; font-weight: bold;'>{servicio}-{numero}</span><br>
+                <span style='font-size: 80px;'>Funcionario {funcionario}</span>
             </div>
                                  """)
         self.turnAlert.show_box()
         self.turnAlert.anim.finished.connect(self.turnAlert.hide_box)
         self.turnAlert.anim.start()
 
-    # Sets style for turn labels
-    def style_label(self, label, serving):
+    def style_label(self, label, serving=False):
+        """Set stylesheet, alignment and shadow effect for a label. Parameters:
+
+        label (QLabel): Label to format
+
+        serving (bool, optional): True for 'serving', False for 'waiting'. Defaults to False"""
         label.setAutoFillBackground(True)  # Crucial for background rendering, whatever that means
+        styleSheet = f"""
+            QLabel {{
+                background: qlineargradient(
+                    x1:0.5, y1:0, x2:0.5, y2:1,
+                    stop:0 #B8CAA8, stop:1 #68735F
+                );
+                background-image: none;
+                border-radius: 5px;
+                color: white;
+                font-size: 50px;
+                font-weight: bold;
+                padding: 10px;
+                min-width: 165px;
+                min-height: 110px;
+            }}"""
         if serving:
-            label.setStyleSheet(f"""
+            styleSheet += f"""
                 QLabel {{
                     background: qlineargradient(
                         x1:0.5, y1:0, x2:0.5, y2:1,
                         stop:0 #85A947, stop:1 #3E7B27
-                    );
-                    background-image: none;
-                    border-radius: 5px;
-                    color: white;
-                    font-size: 50px;
-                    font-weight: bold;
-                    padding: 10px;
-                    min-width: 165px;
-                    min-height: 110px;
-                }}
-                """)
-        else:
-            label.setStyleSheet(f"""
-                QLabel {{
-                    background: qlineargradient(
-                        x1:0.5, y1:0, x2:0.5, y2:1,
-                        stop:0 #B8CAA8, stop:1 #68735F
-                    );
-                    background-image: none;
-                    border-radius: 5px;
-                    color: white;
-                    font-size: 50px;
-                    font-weight: bold;
-                    padding: 10px;
-                    min-width: 165px;
-                    min-height: 110px;
-                }}
-                """)
+                    );}}"""
+        label.setStyleSheet(styleSheet)
         label.setAlignment(Qt.AlignCenter)
         labelShadow = QGraphicsDropShadowEffect(label, blurRadius=5)
         labelShadow.setOffset(3,3)
         label.setGraphicsEffect(labelShadow)
     
-    # Styles and adds header labels to the grid
-    def add_header(self, text, row, col, grid):
-        label = QLabel(text)
+    def style_header(self, label):
+        """Set stylesheet and alignment for label. Parameters:
+        
+        label (Qlabel): Label to format"""
         label.setStyleSheet(f"""
             QLabel {{
                 background-color: #123524;
@@ -435,12 +396,6 @@ class Digiturno(QMainWindow):
             }}
             """)
         label.setAlignment(Qt.AlignCenter)
-        if grid == 1:
-            self.gridLayout1.addWidget(label, row, col)
-        elif grid == 2:
-            self.gridLayout2.addWidget(label, row, col)
-        else:
-            self.waitHeader.addWidget(label)
 
     # Repositions turn alert when resizing
     def resizeEvent(self, event):
@@ -564,6 +519,64 @@ class Digiturno(QMainWindow):
         except Exception as e:
             print(f"Error with init_db: {e}")
             self.conn.rollback()
+        
+    def setup_rabbitmq(self):
+        self.connection = pika.BlockingConnection(
+            pika.ConnectionParameters('localhost'))
+        self.channel = self.connection.channel()
+        
+        # Direct exchange for commands TO server
+        self.channel.exchange_declare(
+            exchange='digiturno_direct',
+            exchange_type='direct',
+            durable=True)
+        
+        # Fanout exchange for broadcasts FROM server
+        self.channel.exchange_declare(
+            exchange='digiturno_broadcast', 
+            exchange_type='fanout',
+            durable=True)
+        
+        # Server's command queue
+        self.channel.queue_declare(queue='server_commands', durable=True)
+        self.channel.queue_bind(
+            exchange='digiturno_direct',
+            queue='server_commands',
+            routing_key='server_command')
+        
+        # Start consuming commands
+        self.channel.basic_consume(
+            queue='server_commands',
+            on_message_callback=self.handle_rabbitmq_command)
+        
+        # Run in background thread
+        self.rabbitmq_thread = threading.Thread(
+            target=self.start_rabbitmq_consumer,
+            daemon=True)
+        self.rabbitmq_thread.start()
+    
+    def start_rabbitmq_consumer(self):
+        """Process RabbitMQ messages"""
+        self.channel.start_consuming()
+    
+    def handle_rabbitmq_command(self, ch, method, properties, body):
+        """Handle incoming commands"""
+        message = body.decode('utf-8')
+        self.command_received.emit(message)  # Reuse your existing signal
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+    
+    def broadcast_update(self, message):
+        """Call this whenever you need to notify all staff"""
+        self.channel.basic_publish(
+            exchange='digiturno_broadcast',
+            routing_key='',
+            body=message)
+    
+    def closeEvent(self, event):
+        """Clean up on window close"""
+        if hasattr(self, 'connection'):
+            self.connection.close()
+        super().closeEvent(event)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
