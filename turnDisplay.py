@@ -124,7 +124,7 @@ class Digiturno(QMainWindow):
         self.gridLayout = QGridLayout()
         self.gridLayout.setAlignment(Qt.AlignTop | Qt.AlignCenter)
         self.gridLayout.setHorizontalSpacing(self.screen_width(4))
-        self.gridLayout.setVerticalSpacing(self.screen_height(25))
+        self.gridLayout.setVerticalSpacing(self.screen_height(20))
         self.gridLayout.setContentsMargins(self.screen_width(5), self.screen_height(5),
                                            self.screen_width(5), 0)
         # HBox for waiting
@@ -262,21 +262,26 @@ class Digiturno(QMainWindow):
             with sqlite3.connect(db_path) as conn:
                 try:
                     conn.cursor().execute('''
-                        WITH updated_turnos AS (
-                            UPDATE turnos
-                            SET estado = 'cancelado'
-                            WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
-                            RETURNING *)
+                        UPDATE turnos
+                        SET estado = 'cancelado'
+                        WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
+                    ''', (servicio, numero))
+                    conn.cursor().execute('''
                         UPDATE funcionarios
                         SET atendidos_hoy = atendidos_hoy - 1,
                             atendidos = atendidos - 1,
                             cancelados_hoy = cancelados_hoy + 1,
                             cancelados = cancelados + 1
                         WHERE id = ?
-                    ''', (servicio, numero, funcionario))
+                    ''', (funcionario,))
                     conn.commit()
+                    for tuple in self.orderedServing:
+                        s, n = tuple[1].split('-')
+                        if s == self.servingStations[funcionario][0] and n == str(self.servingStations[funcionario][1]):
+                            self.orderedServing.remove(tuple)
                     self.servingStations[funcionario] = None
-                    
+                    self.update_serving()
+                    print(f"Servings: {self.orderedServing}")
                 except:
                     traceback.print_exc()
                     print(f"^Error canceling turn for {funcionario}. Read traceback above^")

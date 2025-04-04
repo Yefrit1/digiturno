@@ -498,8 +498,6 @@ class MainWindow(QMainWindow):
 
     def cancel_current_turn(self):
         if self.labelTurno.text() != "-":
-            turn_info = self.labelTurno.text().split(' . ')[0]
-            servicio, numero = turn_info.split('-')
             try:
                 self.command_channel.basic_publish(
                     exchange='digiturno_direct',
