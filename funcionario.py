@@ -23,7 +23,7 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         self.setWindowTitle("Funcionario COOHEM")
         self.setGeometry(int(self.screenGeometry.width()/2 - 450),
-                         int(self.screenGeometry.height()/2 - 300), 900, 600)
+                         int(self.screenGeometry.height()/10), 900, 600)
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         self.set_background_color(central_widget, '#EFE3C2')
@@ -51,19 +51,24 @@ class MainWindow(QMainWindow):
 
         # Current turn
         hBox2 = QHBoxLayout()
-        hBox2.setContentsMargins(10, 0, 10, 20)
+        hBox2.setContentsMargins(30, 0, 20, 30)
 
         labelAtendiendo = QLabel("Atendiendo: ")
         self.style_label(labelAtendiendo, 30, "#1D3C12")
+        labelAtendiendo.setMinimumWidth(self.screen_width(8.7))
 
-        self.labelTurno = QLabel("Sample turn text")
+        self.labelTurno = QLabel("-")
         self.style_label(self.labelTurno, 30, "#1D3C12")
+        self.labelTurno.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        #self.labelTurno.setSizePolicy()
 
         buttonTerminado = QPushButton("Terminado")
         self.style_button(buttonTerminado, 30)
+        buttonTerminado.setFixedWidth(int(self.screenGeometry.width()/10))
         buttonTerminado.clicked.connect(self.complete_current_turn)
 
         hBox2.addWidget(labelAtendiendo)
+        self.add_spacer(hBox2)
         hBox2.addWidget(self.labelTurno)
         self.add_spacer(hBox2)
         hBox2.addWidget(buttonTerminado)
@@ -82,6 +87,11 @@ class MainWindow(QMainWindow):
         self.style_label(labelCobranza, 30, "#1D3C12")
         self.style_label(labelCartera, 30, "#1D3C12")
 
+        labelAsesoria.setMinimumWidth(self.screen_width(10))
+        labelCaja.setMinimumWidth(self.screen_width(10))
+        labelCobranza.setMinimumWidth(self.screen_width(10))
+        labelCartera.setMinimumWidth(self.screen_width(10))
+
         hBox3.addWidget(labelAsesoria)
         hBox3.addWidget(labelCaja)
         hBox3.addWidget(labelCobranza)
@@ -92,29 +102,9 @@ class MainWindow(QMainWindow):
         hBox3Widget = QWidget()
         self.gridTurns = QGridLayout(hBox3Widget)
         self.gridTurns.setContentsMargins(10, 0, 10, 0)
-
-        # Spacers
-        for i in range(4):
-            expanding_spacer = QSpacerItem(500, 20, QSizePolicy.Expanding, QSizePolicy.Preferred)
-            self.gridTurns.addItem(expanding_spacer, 0, i)
         
         # Load pending turns from DB
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT t.servicio, t.numero, c.nombre
-                    FROM turnos t
-                    JOIN clientes c ON t.cliente_id = c.id
-                    WHERE t.estado = 'pendiente'
-                    AND DATE(t.creado) = DATE('now')
-                    ORDER BY t.creado
-                ''')
-                for servicio, numero, nombre in cursor.fetchall():
-                    self.queue[servicio].append(numero)
-                    self.add_pending_turn(servicio, numero, nombre)
-        except:
-            traceback.print_exc()
+        self.update_grid()
 
         hBox4.addWidget(hBox3Widget)
 
@@ -149,15 +139,15 @@ class MainWindow(QMainWindow):
 
     def add_pending_turn(self, servicio, numero, nombre=None):
         row = len(self.queue[servicio]) - 1
-        if row < 5:
+        if row < 4:
             gridWidget = QWidget()
             gridHbox = QHBoxLayout(gridWidget)
             gridHbox.setSpacing(0)
             gridWidget.setLayout(gridHbox)
 
             turno = QWidget()
-            turno.setMinimumWidth(int(QApplication.primaryScreen().geometry().width()/20))
-            turno.setMaximumWidth(int(QApplication.primaryScreen().geometry().width()/6))
+            turno.setMinimumWidth(int(self.screenGeometry.width()/20))
+            turno.setMaximumWidth(int(self.screenGeometry.width()/6))
             self.format_turn(turno, f"{servicio}-{numero}", f"{nombre}")
 
             llamar = QPushButton("Llamar")
@@ -177,35 +167,45 @@ class MainWindow(QMainWindow):
                 case 'CT': col = 3
             self.gridTurns.addWidget(gridWidget, row, col)
 
-    def update_grid(self, servicio, numero):
-        removed_row = -1
-        removed_col = -1
-        
-        for row in range(self.gridTurns.rowCount()):
-            for col in range(self.gridTurns.columnCount()):
-                item = self.gridTurns.itemAtPosition(row, col)
-                if item and item.widget():
-                    turn_label = item.widget().findChild(QLabel)
-                    if turn_label and f"{servicio}-{numero}" in turn_label.text():
-                        self.gridTurns.removeWidget(item.widget())
-                        item.widget().deleteLater()
-                        if numero in self.queue[servicio]:
-                            self.queue[servicio].remove(numero)
-                        removed_row, removed_col = row, col
-                        break
-        
-        if removed_row != -1:
-            for r in range(removed_row + 1, self.gridTurns.rowCount()):
-                item = self.gridTurns.itemAtPosition(r, removed_col)
-                if item and item.widget():
-                    widget = item.widget()
-                    self.gridTurns.removeWidget(widget)
-                    self.gridTurns.addWidget(widget, r-1, removed_col)
+    def update_grid(self):
+        self.clear_grid()
+        for i in range(4):
+            expanding_spacer = QSpacerItem(500, 20, QSizePolicy.Expanding, QSizePolicy.Preferred)
+            self.gridTurns.addItem(expanding_spacer, 0, i)
+        self.load_pending()
+
+    def clear_grid(self):
+        self.queue = {key: [] for key in self.queue} # Clear queue dict
+        while self.gridTurns.count():
+            item = self.gridTurns.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def load_pending(self):
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT t.servicio, t.numero, c.nombre
+                    FROM turnos t
+                    JOIN clientes c ON t.cliente_id = c.id
+                    WHERE t.estado = 'pendiente'
+                    AND DATE(t.creado) = DATE('now')
+                    ORDER BY t.creado
+                ''')
+                for servicio, numero, nombre in cursor.fetchall():
+                    self.queue[servicio].append(numero)
+                    self.add_pending_turn(servicio, numero, nombre)
+        except:
+            traceback.print_exc()
+            print("^Error loading turns. Read traceback above^")
 
     def update_called_turn(self, servicio, numero, nombre):
         self.labelTurno.setText(f"{servicio}-{numero} . {nombre}")
 
     def handle_server_update(self, message):
+        print(f"Handling server update: {message}")
         try:
             if message.startswith("NEW_TURN:"):
                 _, turnInfo, nombre = message.split(':')
@@ -214,14 +214,14 @@ class MainWindow(QMainWindow):
                 self.add_pending_turn(servicio, numero, nombre)
 
             elif message.startswith("CALLED:"):
-                _, turnInfo, station = message.split(':')
+                _, turnInfo = message.split(':')
                 servicio, numero = turnInfo.split('-')
-                self.update_grid(servicio, numero)
+                self.update_grid()
 
             elif message.startswith("COMPLETED:"):
                 _, turnInfo = message.split(':')
                 servicio, numero = turnInfo.split('-')
-                self.update_grid(servicio, numero)
+                self.update_grid()
         except:
             traceback.print_exc()
 
@@ -269,11 +269,19 @@ class MainWindow(QMainWindow):
             label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         layout.addWidget(label)
 
+    def screen_width(self, num):
+        """Returns pixel value of screen width % based on parameter"""
+        return int(self.screenGeometry.width()*num/100)
+    def screen_height(self, num):
+        """Returns pixel value of screen height % based on parameter"""
+        return int(self.screenGeometry.height()*num/100)
+
     def show_login(self):
         dialog = LoginDialog(self)
         if dialog.exec_() == QDialog.Accepted:
             self.userID = dialog.userID
             self.labelTitle.setText(f"Funcionario {self.userID}")
+            self.setup_rabbitmq()
             self.show()
         else:
             self.close()
@@ -303,8 +311,7 @@ class MainWindow(QMainWindow):
                     heartbeat=600,
                     blocked_connection_timeout=300,
                     connection_attempts=5,
-                    retry_delay=5
-                )
+                    retry_delay=5)
                 
                 self.cleanup_connections()
                 
@@ -313,7 +320,36 @@ class MainWindow(QMainWindow):
                 
                 self.broadcast_connection = pika.BlockingConnection(parameters)
                 self.broadcast_channel = self.broadcast_connection.channel()
+
+                self.ack_connection = pika.BlockingConnection(parameters)
+                self.ack_channel = self.ack_connection.channel()
                 
+                self.command_channel.exchange_declare(
+                    exchange='ack_exchange',
+                    exchange_type='direct',
+                    durable=True)
+
+                if self.userID:
+                    self.ack_queue = f'ack_queue_{self.userID}'
+                    self.ack_channel.queue_declare(
+                        queue=self.ack_queue,
+                        exclusive=True)
+
+                    self.ack_channel.queue_bind(
+                        exchange='ack_exchange',
+                        queue=self.ack_queue,
+                        routing_key=str(self.userID))
+                    
+                    self.ack_channel.basic_consume(
+                        queue=self.ack_queue,
+                        on_message_callback=self.handle_ack,
+                        auto_ack=True)
+                    
+                    self.ack_thread = threading.Thread(
+                        target=self.start_ack_consumer,
+                        daemon=True)
+                    self.ack_thread.start()
+
                 result = self.broadcast_channel.queue_declare(queue='', exclusive=True)
                 self.broadcast_channel.queue_bind(
                     exchange='digiturno_broadcast',
@@ -329,7 +365,8 @@ class MainWindow(QMainWindow):
                 self.broadcast_thread.start()
                 
             except Exception as e:
-                print(f"RabbitMQ setup failed: {e}")
+                traceback.print_exc()
+                print("^Error with RabbitMQ setup. Read traceback above^")
                 QTimer.singleShot(5000, self.setup_rabbitmq)
 
     def start_broadcast_consumer(self):
@@ -353,34 +390,61 @@ class MainWindow(QMainWindow):
                     time.sleep(5)
                 continue
 
+    def start_ack_consumer(self):
+        """Thread target for consuming acknowledgments"""
+        while not self.shutdownFlag:
+            try:
+                if self.ack_channel.is_open:
+                    self.ack_channel.start_consuming()
+                    print("ack channel consuming")
+                else:
+                    time.sleep(1)
+            except pika.exceptions.StreamLostError:
+                if not self.shutdownFlag:
+                    self.setup_rabbitmq()  # Reconnect
+            except Exception as e:
+                print(f"Ack consumer error: {e}")
+                time.sleep(5)
+
     def cleanup_connections(self):
         try:
             if hasattr(self, 'broadcast_channel') and self.broadcast_channel.is_open:
                 try:
                     self.broadcast_channel.stop_consuming()
-                except:
-                    pass
+                except: pass
                 self.broadcast_channel.close()
-        except:
-            pass
+        except: pass
         
         try:
             if hasattr(self, 'broadcast_connection') and self.broadcast_connection.is_open:
                 self.broadcast_connection.close()
-        except:
-            pass
+        except: pass
         
         try:
             if hasattr(self, 'command_channel') and self.command_channel.is_open:
+                try:
+                    self.command_channel.stop_consuming()
+                except: pass
                 self.command_channel.close()
-        except:
-            pass
+        except: pass
         
         try:
             if hasattr(self, 'command_connection') and self.command_connection.is_open:
                 self.command_connection.close()
-        except:
-            pass
+        except: pass
+
+        try:
+            if hasattr(self, 'ack_channel') and self.ack_channel.is_open:
+                try:
+                    self.ack_channel.stop_consuming()
+                except: pass
+                self.ack_channel.close()
+        except: pass
+
+        try:
+            if hasattr(self, 'ack_connection') and self.ack_connection.is_open:
+                self.ack_connection.close()
+        except: pass
 
     def closeEvent(self, event):
         self.shutdownFlag = True
@@ -391,8 +455,17 @@ class MainWindow(QMainWindow):
         try:
             message = body.decode('utf-8')
             self.updateUIsignal.emit(message)
+            print(f"Broadcast handled: {message}")
         except Exception as e:
             print(f"Error processing broadcast: {e}")
+
+    def handle_ack(self, ch, method, properties, body):
+        message = body.decode('utf-8')
+        if message.startswith('ACK_NEXT_TURN:'):
+            _, turnInfo, nombre = message.split(':')
+            servicio, numero = turnInfo.split('-')
+            self.update_called_turn(servicio, numero, nombre)
+            print(f"ack handled: {message}")
 
     def call_next_turn(self, servicio, numero):
         """Send message to call next turn. Parameters:
@@ -405,27 +478,26 @@ class MainWindow(QMainWindow):
                 exchange='digiturno_direct',
                 routing_key='server_command',
                 body=f'NEXT_TURN:{self.userID}:{servicio}-{numero}')
-            self.update_grid(servicio, numero)
-        except Exception as e:
-            print(f"Error calling next turn: {e}")
+        except:
+            traceback.print_exc()
+            print("^Error calling next turn. Read traceback above^")
             self.setup_rabbitmq()
 
     def complete_current_turn(self):
-        if self.labelTurno.text() != "Sample turn text":
-            turn_info = self.labelTurno.text().split(' . ')[0]
-            servicio, numero = turn_info.split('-')
+        if self.labelTurno.text() != "-":
             try:
                 self.command_channel.basic_publish(
                     exchange='digiturno_direct',
                     routing_key='server_command',
                     body=f'COMPLETE_TURN:{self.userID}')
-                self.labelTurno.setText("Sample turn text")
-            except Exception as e:
-                print(f"Error completing turn: {e}")
+                self.labelTurno.setText("-")
+            except:
+                traceback.print_exc()
+                print(f"^Error completing turn. Read traceback above^")
                 self.setup_rabbitmq()
 
     def cancel_current_turn(self):
-        if self.labelTurno.text() != "Sample turn text":
+        if self.labelTurno.text() != "-":
             turn_info = self.labelTurno.text().split(' . ')[0]
             servicio, numero = turn_info.split('-')
             try:
@@ -433,7 +505,7 @@ class MainWindow(QMainWindow):
                     exchange='digiturno_direct',
                     routing_key='server_command',
                     body=f'CANCEL_TURN:{self.userID}')
-                self.labelTurno.setText("Sample turn text")
+                self.labelTurno.setText("-")
             except Exception as e:
                 print(f"Error canceling turn: {e}")
                 self.setup_rabbitmq()
