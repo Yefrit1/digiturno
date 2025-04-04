@@ -245,7 +245,8 @@ class Digiturno(QMainWindow):
                 self.update_serving()
                 self.update_waiting()
                 self.show_alert(servicio, numero, funcionario, nombre)
-                self.broadcast_update(f"ACK_NEXT_TURN:")
+                self.broadcast_update(f"CALLED:{servicio}-{numero}")
+                self.ack_next_turn(funcionario, servicio, numero, nombre)
             except:
                 traceback.print_exc()
                 print("^Error calling next turn. Read traceback above^")
@@ -294,7 +295,6 @@ class Digiturno(QMainWindow):
             elif col < 10:
                 self.gridLayout.addWidget(turn, 1, col-5)
             col += 1
-            print("updated grid")
 
     def clear_grid(self, layout):
         """Remove all widgets from a grid layout"""
@@ -556,9 +556,15 @@ class Digiturno(QMainWindow):
             pika.ConnectionParameters('localhost'))
         self.channel = self.connection.channel()
         
-        # Direct exchange for commands TO server
+        # Direct exchange
         self.channel.exchange_declare(
             exchange='digiturno_direct',
+            exchange_type='direct',
+            durable=True)
+        
+        # Direct exchange for acknowledge msg
+        self.channel.exchange_declare(
+            exchange='ack_exchange',
             exchange_type='direct',
             durable=True)
         
@@ -593,9 +599,22 @@ class Digiturno(QMainWindow):
     def handle_rabbitmq_command(self, ch, method, properties, body):
         """Handle incoming commands"""
         message = body.decode('utf-8')
-        self.command_received.emit(message)  # Reuse your existing signal
+        self.command_received.emit(message)
         ch.basic_ack(delivery_tag=method.delivery_tag)
-    
+
+    def ack_next_turn(self, routingKey, servicio, numero, nombre):
+        """Send direct acknowledgement message to sender funcionario after next turn. Parameters:
+        routingKey (Str or int): Use funcionario's id as routing_key
+        servicio (Str): Turn's service type
+        numero (int): Turn number
+        nombre (Str): Customer's name"""
+        self.channel.basic_publish(
+            exchange='ack_exchange',
+            routing_key=str(routingKey),
+            body=f'ACK_NEXT_TURN:{servicio}-{numero}:{nombre}',
+            properties=pika.BasicProperties(delivery_mode=2))
+        print(f"Ack sent: RK:{routingKey}, turn:{servicio}-{numero}, name:{nombre}")
+
     def broadcast_update(self, message):
         """Call this whenever you need to notify all staff"""
         self.channel.basic_publish(
