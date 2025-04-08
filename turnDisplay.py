@@ -289,8 +289,12 @@ class Digiturno(QMainWindow):
 
     def update_serving(self):
         """Update UI with turns that are currently being served"""
-        self.clear_grid(self.gridLayout)  
-        col = 0  
+        self.clear_grid(self.gridLayout)
+        for i in range(5):
+            spacer = QLabel()
+            spacer.setFixedWidth(self.screen_width(13))
+            self.gridLayout.addWidget(spacer, 0, i)
+        col = 0
         for funcionario, turno, nombre in self.orderedServing[::-1]: # Iterate over the inverted list to display last turn first
             if col > 10: break
             turn = QLabel(f"Funcionario {funcionario}<br>{turno}<br>{nombre}")
