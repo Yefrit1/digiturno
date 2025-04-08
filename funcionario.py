@@ -15,7 +15,6 @@ class MainWindow(QMainWindow):
         self.shutdownFlag = False
         self.connectionLock = threading.Lock()
         self.pendingRequests = {}
-        
         self.init_ui()
         self.setup_rabbitmq()
         self.updateUIsignal.connect(self.handle_server_update)
@@ -207,7 +206,9 @@ class MainWindow(QMainWindow):
     def handle_server_update(self, message):
         print(f"Handling server update: {message}")
         try:
-            if message.startswith("NEW_TURN:"):
+            if message == "RECONNECT_RABBITMQ":
+                self.setup_rabbitmq()
+            elif message.startswith("NEW_TURN:"):
                 _, turnInfo, nombre = message.split(':')
                 servicio, numero = turnInfo.split('-')
                 self.queue[servicio].append(numero)
@@ -216,7 +217,9 @@ class MainWindow(QMainWindow):
             elif message.startswith("CALLED:"):
                 _, turnInfo = message.split(':')
                 servicio, numero = turnInfo.split('-')
+                print("updating grid...")
                 self.update_grid()
+                print("grid updated")
 
             elif message.startswith("COMPLETED:"):
                 _, turnInfo = message.split(':')
@@ -224,6 +227,7 @@ class MainWindow(QMainWindow):
                 self.update_grid()
         except:
             traceback.print_exc()
+            print("^Error handling server update. Read traceback above^")
 
     def style_label(self, label, fontSize, color):
         styleSheet = f"""
@@ -279,8 +283,10 @@ class MainWindow(QMainWindow):
     def show_login(self):
         dialog = LoginDialog(self)
         if dialog.exec_() == QDialog.Accepted:
+            print(f"Current User ID: {dialog.userID}")
             self.userID = dialog.userID
             self.labelTitle.setText(f"Funcionario {self.userID}")
+            self.shutdownFlag = False
             self.setup_rabbitmq()
             self.show()
         else:
@@ -291,8 +297,7 @@ class MainWindow(QMainWindow):
         
         time.sleep(0.1)
         self.cleanup_connections()
-        
-        self.shutdownFlag = False
+
         self.userID = None
         self.close()
         self.show_login()
@@ -304,16 +309,19 @@ class MainWindow(QMainWindow):
         widget.setPalette(palette)
         
     def setup_rabbitmq(self):
-        with self.connectionLock:
+        try:
+            if not self.connectionLock.acquire(blocking=False):
+                print("Could not acquire lock for RabbitMQ")
+                return
             try:
+                self.unsafe_cleanup_connections()
+
                 parameters = pika.ConnectionParameters(
                     host='localhost',
-                    heartbeat=600,
-                    blocked_connection_timeout=300,
+                    heartbeat=15,
+                    blocked_connection_timeout=2,
                     connection_attempts=5,
-                    retry_delay=5)
-                
-                self.cleanup_connections()
+                    retry_delay=1)
                 
                 self.command_connection = pika.BlockingConnection(parameters)
                 self.command_channel = self.command_connection.channel()
@@ -367,88 +375,73 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 traceback.print_exc()
                 print("^Error with RabbitMQ setup. Read traceback above^")
+                self.unsafe_cleanup_connections()
                 QTimer.singleShot(5000, self.setup_rabbitmq)
+            finally:
+                self.connectionLock.release()
+        except:
+            traceback.print_exc()
+            print("^Lock aquisition failed. Read traceback above^")
+
+    def start_consumer(self,consumer):
+        while not self.shutdownFlag:
+            try:
+                if not hasattr(self, f'{consumer}_channel') or \
+                not getattr(self, f'{consumer}_channel').is_open:
+                    if self.shutdownFlag: break
+                    time.sleep(0.5)
+                    continue
+                getattr(self, f'{consumer}_channel').start_consuming()
+            except pika.exceptions.StreamLostError:
+                if not self.shutdownFlag:
+                    self.updateUIsignal.emit("RECONNECT_RABBITMQ")
+                continue
+            except Exception as e:
+                if not self.shutdownFlag:
+                    time.sleep(0.5)
+                continue
 
     def start_broadcast_consumer(self):
-        while not self.shutdownFlag:
-            try:
-                if not hasattr(self, 'broadcast_channel') or not self.broadcast_channel.is_open:
-                    if self.shutdownFlag:
-                        break
-                    time.sleep(1)
-                    continue
-                
-                self.broadcast_channel.start_consuming()
-                
-            except pika.exceptions.StreamLostError:
-                if not self.shutdownFlag:
-                    QMetaObject.invokeMethod(self, "setup_rabbitmq", Qt.QueuedConnection)
-                continue
-                
-            except Exception as e:
-                if not self.shutdownFlag:
-                    time.sleep(5)
-                continue
+        self.start_consumer('broadcast')
 
     def start_ack_consumer(self):
-        """Thread target for consuming acknowledgments"""
-        while not self.shutdownFlag:
-            try:
-                if self.ack_channel.is_open:
-                    self.ack_channel.start_consuming()
-                    print("ack channel consuming")
-                else:
-                    time.sleep(1)
-            except pika.exceptions.StreamLostError:
-                if not self.shutdownFlag:
-                    self.setup_rabbitmq()  # Reconnect
-            except Exception as e:
-                print(f"Ack consumer error: {e}")
-                time.sleep(5)
+        self.start_consumer('ack')
 
     def cleanup_connections(self):
-        try:
-            if hasattr(self, 'broadcast_channel') and self.broadcast_channel.is_open:
-                try:
-                    self.broadcast_channel.stop_consuming()
-                except: pass
-                self.broadcast_channel.close()
-        except: pass
-        
-        try:
-            if hasattr(self, 'broadcast_connection') and self.broadcast_connection.is_open:
-                self.broadcast_connection.close()
-        except: pass
-        
-        try:
-            if hasattr(self, 'command_channel') and self.command_channel.is_open:
-                try:
-                    self.command_channel.stop_consuming()
-                except: pass
-                self.command_channel.close()
-        except: pass
-        
-        try:
-            if hasattr(self, 'command_connection') and self.command_connection.is_open:
-                self.command_connection.close()
-        except: pass
+        """Thread-safe connection cleanup"""
+        if self.connectionLock.locked():
+            self.unsafe_cleanup_connections()
+        else:
+            with self.connectionLock:
+                self.unsafe_cleanup_connections()
 
-        try:
-            if hasattr(self, 'ack_channel') and self.ack_channel.is_open:
-                try:
-                    self.ack_channel.stop_consuming()
-                except: pass
-                self.ack_channel.close()
-        except: pass
+    def unsafe_cleanup_connections(self):
+        """Actual cleanup logic without locking"""
+        def safe_close(conn):
+            try:
+                if conn and conn.is_open:
+                    conn.close()
+            except: pass
+        def safe_stop_consuming(chan):
+            try:
+                if chan and chan.is_open:
+                    chan.stop_consuming()
+            except: pass
 
-        try:
-            if hasattr(self, 'ack_connection') and self.ack_connection.is_open:
-                self.ack_connection.close()
-        except: pass
+        # Clean up connections
+        for connType in ['broadcast', 'command', 'ack']:
+            channel = getattr(self, f'{connType}_channel', None)
+            connection = getattr(self, f'{connType}_connection', None)
+            if channel:
+                safe_stop_consuming(channel)
+                delattr(self, f'{connType}_channel')
+            if connection:
+                safe_close(connection)
+                delattr(self, f'{connType}_connection')
 
     def closeEvent(self, event):
         self.shutdownFlag = True
-        self.cleanup_connections()
+        self.unsafe_cleanup_connections()
         super().closeEvent(event)
 
     def handle_broadcast(self, ch, method, properties, body):
@@ -549,7 +542,10 @@ class LoginDialog(QDialog):
             QMessageBox.warning(self, "Error", "Credenciales inválidas.")
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    client = MainWindow()
-    client.show_login()
-    sys.exit(app.exec_())
+    try:
+        app = QApplication(sys.argv)
+        client = MainWindow()
+        client.show_login()
+        sys.exit(app.exec_())
+    except Exception as e:
+        print(f"Fatal error: {e}")
