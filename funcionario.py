@@ -23,7 +23,7 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         self.setWindowTitle("Funcionario COOHEM")
         self.setGeometry(int(self.screenGeometry.width()/2 - 450),
-                         int(self.screenGeometry.height()/10), 900, 600)
+                         int(self.screenGeometry.height()/10), 1000, 600)
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         self.set_background_color(central_widget, '#EFE3C2')
@@ -98,12 +98,13 @@ class MainWindow(QMainWindow):
         hBox3.addWidget(labelCartera)
 
         # Grid for turns
-        hBox4 = QHBoxLayout()
-        hBox3Widget = QWidget()
-        self.gridTurns = QGridLayout(hBox3Widget)
+        scrollArea = QScrollArea()
+        scrollArea.setWidgetResizable(True)
+        scrollWidget = QWidget()
+        scrollArea.setWidget(scrollWidget)
+        self.gridTurns = QGridLayout(scrollWidget)
         self.gridTurns.setContentsMargins(10, 0, 10, 0)
-
-        hBox4.addWidget(hBox3Widget)
+        self.gridTurns.setAlignment(Qt.AlignTop)
 
         # Logout and cancel buttons
         hBox5 = QHBoxLayout()
@@ -130,8 +131,8 @@ class MainWindow(QMainWindow):
         layoutMain.addLayout(hBox1)
         layoutMain.addLayout(hBox2)
         layoutMain.addLayout(hBox3)
-        layoutMain.addLayout(hBox4)
-        layoutMain.addStretch()
+        layoutMain.addWidget(scrollArea)
+        #layoutMain.addStretch()
         layoutMain.addLayout(hBox5)
 
     def add_pending_turn(self, servicio, numero, nombre=None):
@@ -140,30 +141,29 @@ class MainWindow(QMainWindow):
             case 'CA': col = 1
             case 'CO': col = 2
             case 'CT': col = 3
-        if self.rows[col] < 4:
-            gridWidget = QWidget()
-            gridHbox = QHBoxLayout(gridWidget)
-            gridHbox.setSpacing(0)
-            gridWidget.setLayout(gridHbox)
+        gridWidget = QWidget()
+        gridHbox = QHBoxLayout(gridWidget)
+        gridHbox.setSpacing(0)
+        gridWidget.setLayout(gridHbox)
 
-            turno = QWidget()
-            turno.setMinimumWidth(int(self.screenGeometry.width()/20))
-            turno.setMaximumWidth(int(self.screenGeometry.width()/6))
-            self.format_turn(turno, f"{servicio}-{numero}", f"{nombre}")
+        turno = QWidget()
+        turno.setMinimumWidth(int(self.screenGeometry.width()/20))
+        turno.setMaximumSize(int(self.screenGeometry.width()/6), 100)
+        self.format_turn(turno, f"{servicio}-{numero}", f"{nombre}")
 
-            llamar = QPushButton("Llamar")
-            llamar.setMinimumWidth(70)
-            llamar.setMaximumSize(90, 100)
-            self.style_button(llamar, 20)
-            llamar.clicked.connect(lambda _, s=servicio, n=numero: self.call_next_turn(s, n))
+        llamar = QPushButton("Llamar")
+        llamar.setMinimumWidth(70)
+        llamar.setMaximumSize(90, 100)
+        self.style_button(llamar, 20)
+        llamar.clicked.connect(lambda _, s=servicio, n=numero: self.call_next_turn(s, n))
 
-            self.add_spacer(gridHbox)
-            gridHbox.addWidget(turno)
-            gridHbox.addWidget(llamar)
-            self.add_spacer(gridHbox)
-            self.gridTurns.addWidget(gridWidget, self.rows[col], col)
-            print(f"Turn {servicio}-{numero} added to row{self.rows[col]}, col{col}")
-            self.rows[col] += 1
+        self.add_spacer(gridHbox)
+        gridHbox.addWidget(turno)
+        gridHbox.addWidget(llamar)
+        self.add_spacer(gridHbox)
+        self.gridTurns.addWidget(gridWidget, self.rows[col], col)
+        print(f"Turn {servicio}-{numero} added to row{self.rows[col]}, col{col}")
+        self.rows[col] += 1
 
     def update_grid(self, serv=None, num=None, nom=None):
         if serv:
