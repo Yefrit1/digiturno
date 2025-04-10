@@ -1,4 +1,4 @@
-import sys, traceback, sqlite3, threading, pika
+import sys, traceback, sqlite3, threading, pika, json
 from datetime import datetime
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
@@ -176,6 +176,11 @@ class Digiturno(QMainWindow):
             _, funcionario = command.split(':')
             print(f"{funcionario} canceling current turn") # Debug
             self.cancel_turn(int(funcionario))
+        # Handle command for funcionario requesting queue
+        elif command.startswith('QUEUE_REQUEST:'):
+            _, funcionario = command.split(':')
+            print(f"{funcionario} requesting queue") # Debug
+            self.ack_queue_request(funcionario)
 
     def new_turn(self, cedula, servicio):
         """Handles new turns"""
@@ -245,7 +250,7 @@ class Digiturno(QMainWindow):
                 self.update_serving()
                 self.update_waiting()
                 self.show_alert(servicio, numero, funcionario, nombre)
-                self.broadcast_update(f"CALLED:{servicio}-{numero}")
+                self.broadcast_update(f"CALLED:{servicio}-{numero}:{nombre}")
                 self.ack_next_turn(funcionario, servicio, numero, nombre)
             except:
                 traceback.print_exc()
@@ -623,6 +628,18 @@ class Digiturno(QMainWindow):
             body=f'ACK_NEXT_TURN:{servicio}-{numero}:{nombre}',
             properties=pika.BasicProperties(delivery_mode=2))
         print(f"Ack sent: RK:{routingKey}, turn:{servicio}-{numero}, name:{nombre}")
+
+    def ack_queue_request(self, routingKey):
+        queue = {}
+        for service, numbers in self.queue.items():
+            queue[service] = [(num, self.queueNames[f"{service}-{num}"]) for num in numbers]
+        self.channel.basic_publish(
+            exchange='ack_exchange',
+            routing_key=str(routingKey),
+            body=json.dumps(queue),
+            properties=pika.BasicProperties(delivery_mode=2))
+        print("Ack sent with queue")
+        print(queue)
 
     def broadcast_update(self, message):
         """Call this whenever you need to notify all staff"""

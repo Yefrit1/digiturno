@@ -1,4 +1,4 @@
-import sys, sqlite3, traceback, pika, threading, time
+import sys, sqlite3, traceback, pika, threading, time, json
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -11,6 +11,7 @@ class MainWindow(QMainWindow):
         self.screenGeometry = QApplication.primaryScreen().geometry()
         self.db_path = "digiturno.db"
         self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
+        self.rows = [0, 0, 0, 0]
         self.userID = None
         self.shutdownFlag = False
         self.connectionLock = threading.Lock()
@@ -101,9 +102,6 @@ class MainWindow(QMainWindow):
         hBox3Widget = QWidget()
         self.gridTurns = QGridLayout(hBox3Widget)
         self.gridTurns.setContentsMargins(10, 0, 10, 0)
-        
-        # Load pending turns from DB
-        self.update_grid()
 
         hBox4.addWidget(hBox3Widget)
 
@@ -137,8 +135,12 @@ class MainWindow(QMainWindow):
         layoutMain.addLayout(hBox5)
 
     def add_pending_turn(self, servicio, numero, nombre=None):
-        row = len(self.queue[servicio]) - 1
-        if row < 4:
+        match servicio:
+            case 'AS': col = 0
+            case 'CA': col = 1
+            case 'CO': col = 2
+            case 'CT': col = 3
+        if self.rows[col] < 4:
             gridWidget = QWidget()
             gridHbox = QHBoxLayout(gridWidget)
             gridHbox.setSpacing(0)
@@ -159,46 +161,34 @@ class MainWindow(QMainWindow):
             gridHbox.addWidget(turno)
             gridHbox.addWidget(llamar)
             self.add_spacer(gridHbox)
-            match servicio:
-                case 'AS': col = 0
-                case 'CA': col = 1
-                case 'CO': col = 2
-                case 'CT': col = 3
-            self.gridTurns.addWidget(gridWidget, row, col)
+            self.gridTurns.addWidget(gridWidget, self.rows[col], col)
+            print(f"Turn {servicio}-{numero} added to row{self.rows[col]}, col{col}")
+            self.rows[col] += 1
 
-    def update_grid(self):
+    def update_grid(self, serv=None, num=None, nom=None):
+        if serv:
+            self.queue[serv].remove((int(num), nom)) # Removes turn from queue if called
         self.clear_grid()
-        for i in range(4):
-            expanding_spacer = QSpacerItem(500, 20, QSizePolicy.Expanding, QSizePolicy.Preferred)
-            self.gridTurns.addItem(expanding_spacer, 0, i)
+        self.grid_spacers()
         self.load_pending()
 
     def clear_grid(self):
-        self.queue = {key: [] for key in self.queue} # Clear queue dict
+        self.rows = [0, 0, 0, 0]
         while self.gridTurns.count():
             item = self.gridTurns.takeAt(0)
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
 
+    def grid_spacers(self):
+        for i in range(4):
+            expanding_spacer = QSpacerItem(500, 20, QSizePolicy.Expanding, QSizePolicy.Preferred)
+            self.gridTurns.addItem(expanding_spacer, 0, i)
+
     def load_pending(self):
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT t.servicio, t.numero, c.nombre
-                    FROM turnos t
-                    JOIN clientes c ON t.cliente_id = c.id
-                    WHERE t.estado = 'pendiente'
-                    AND DATE(t.creado) = DATE('now')
-                    ORDER BY t.creado
-                ''')
-                for servicio, numero, nombre in cursor.fetchall():
-                    self.queue[servicio].append(numero)
-                    self.add_pending_turn(servicio, numero, nombre)
-        except:
-            traceback.print_exc()
-            print("^Error loading turns. Read traceback above^")
+        for servicio in self.queue:
+            for numero, nombre in self.queue[servicio]:
+                self.add_pending_turn(servicio, numero, nombre)
 
     def update_called_turn(self, servicio, numero, nombre):
         self.labelTurno.setText(f"{servicio}-{numero} . {nombre}")
@@ -211,20 +201,17 @@ class MainWindow(QMainWindow):
             elif message.startswith("NEW_TURN:"):
                 _, turnInfo, nombre = message.split(':')
                 servicio, numero = turnInfo.split('-')
-                self.queue[servicio].append(numero)
+                self.queue[servicio].append((numero, nombre))
                 self.add_pending_turn(servicio, numero, nombre)
-
             elif message.startswith("CALLED:"):
-                _, turnInfo = message.split(':')
+                _, turnInfo, nombre = message.split(':')
                 servicio, numero = turnInfo.split('-')
-                print("updating grid...")
+                self.update_grid(servicio, numero, nombre)
+            elif message == "QUEUE_ACK":
+                self.queue = self.convert_lists_to_tuples(self.queue)
+                print(self.queue)
                 self.update_grid()
-                print("grid updated")
 
-            elif message.startswith("COMPLETED:"):
-                _, turnInfo = message.split(':')
-                servicio, numero = turnInfo.split('-')
-                self.update_grid()
         except:
             traceback.print_exc()
             print("^Error handling server update. Read traceback above^")
@@ -273,6 +260,10 @@ class MainWindow(QMainWindow):
             label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         layout.addWidget(label)
 
+    def convert_lists_to_tuples(self, dict):
+        print("Converting dict")
+        return {key: [tuple(item) for item in value] for key, value in dict.items()}
+
     def screen_width(self, num):
         """Returns pixel value of screen width % based on parameter"""
         return int(self.screenGeometry.width()*num/100)
@@ -288,6 +279,8 @@ class MainWindow(QMainWindow):
             self.labelTitle.setText(f"Funcionario {self.userID}")
             self.shutdownFlag = False
             self.setup_rabbitmq()
+            print("Rabbitmq set up")
+            self.request_queue()
             self.show()
         else:
             self.close()
@@ -459,6 +452,22 @@ class MainWindow(QMainWindow):
             servicio, numero = turnInfo.split('-')
             self.update_called_turn(servicio, numero, nombre)
             print(f"ack handled: {message}")
+        else:
+            print("Acknowledgment of queue request in progress...")
+            self.queue = json.loads(message)
+            self.updateUIsignal.emit("QUEUE_ACK")
+
+    def request_queue(self):
+        print("Sending queue request...")
+        try:
+            self.command_channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'QUEUE_REQUEST:{self.userID}')
+        except:
+            traceback.print_exc()
+            print("^Error requesting queue. Read traceback above^")
+            self.setup_rabbitmq()
 
     def call_next_turn(self, servicio, numero):
         """Send message to call next turn. Parameters:
@@ -542,10 +551,7 @@ class LoginDialog(QDialog):
             QMessageBox.warning(self, "Error", "Credenciales inválidas.")
 
 if __name__ == "__main__":
-    try:
-        app = QApplication(sys.argv)
-        client = MainWindow()
-        client.show_login()
-        sys.exit(app.exec_())
-    except Exception as e:
-        print(f"Fatal error: {e}")
+    app = QApplication(sys.argv)
+    client = MainWindow()
+    client.show_login()
+    sys.exit(app.exec_())
