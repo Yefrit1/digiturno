@@ -1,4 +1,5 @@
-import sys, sqlite3, traceback, pika, threading, time, json
+import sys, sqlite3, traceback, pika, time, json, uuid, threading
+from pika.adapters.asyncio_connection import AsyncioConnection
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -12,14 +13,15 @@ class MainWindow(QMainWindow):
         self.db_path = "digiturno.db"
         self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
         self.rows = [0, 0, 0, 0]
+        self.id = uuid.uuid4()
         self.userID = None
-        self.shutdownFlag = False
-        self.connectionLock = threading.Lock()
-        self.pendingRequests = {}
+        self.connection = None
+        self.channel = None
+        self.loggedOut = False
         self.init_ui()
-        self.setup_rabbitmq()
+        #self.setup_rabbitmq()
         self.updateUIsignal.connect(self.handle_server_update)
-    
+
     def init_ui(self):
         self.setWindowTitle("Funcionario COOHEM")
         self.setGeometry(int(self.screenGeometry.width()/2 - 450),
@@ -55,12 +57,11 @@ class MainWindow(QMainWindow):
 
         labelAtendiendo = QLabel("Atendiendo: ")
         self.style_label(labelAtendiendo, 30, "#1D3C12")
-        labelAtendiendo.setMinimumWidth(self.screen_width(8.7))
+        labelAtendiendo.setMinimumWidth(int(self.screenGeometry.width()*0.087))
 
         self.labelTurno = QLabel("-")
         self.style_label(self.labelTurno, 30, "#1D3C12")
         self.labelTurno.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        #self.labelTurno.setSizePolicy()
 
         buttonTerminado = QPushButton("Terminado")
         self.style_button(buttonTerminado, 30)
@@ -87,10 +88,10 @@ class MainWindow(QMainWindow):
         self.style_label(labelCobranza, 30, "#1D3C12")
         self.style_label(labelCartera, 30, "#1D3C12")
 
-        labelAsesoria.setMinimumWidth(self.screen_width(10))
-        labelCaja.setMinimumWidth(self.screen_width(10))
-        labelCobranza.setMinimumWidth(self.screen_width(10))
-        labelCartera.setMinimumWidth(self.screen_width(10))
+        labelAsesoria.setMinimumWidth(int(self.screenGeometry.width()*0.1))
+        labelCaja.setMinimumWidth(int(self.screenGeometry.width()*0.1))
+        labelCobranza.setMinimumWidth(int(self.screenGeometry.width()*0.1))
+        labelCartera.setMinimumWidth(int(self.screenGeometry.width()*0.1))
 
         hBox3.addWidget(labelAsesoria)
         hBox3.addWidget(labelCaja)
@@ -132,10 +133,10 @@ class MainWindow(QMainWindow):
         layoutMain.addLayout(hBox2)
         layoutMain.addLayout(hBox3)
         layoutMain.addWidget(scrollArea)
-        #layoutMain.addStretch()
         layoutMain.addLayout(hBox5)
 
     def add_pending_turn(self, servicio, numero, nombre=None):
+        """Add turn to GUI. Does NOT add turn to self.queue"""
         match servicio:
             case 'AS': col = 0
             case 'CA': col = 1
@@ -162,12 +163,13 @@ class MainWindow(QMainWindow):
         gridHbox.addWidget(llamar)
         self.add_spacer(gridHbox)
         self.gridTurns.addWidget(gridWidget, self.rows[col], col)
-        print(f"Turn {servicio}-{numero} added to row{self.rows[col]}, col{col}")
         self.rows[col] += 1
 
     def update_grid(self, serv=None, num=None, nom=None):
         if serv:
-            self.queue[serv].remove((int(num), nom)) # Removes turn from queue if called
+            tupleRemoving = (int(num), nom)
+            print(f"Removing {tupleRemoving}, type {type(tupleRemoving)}, from {serv}")
+            self.queue[serv].remove((int(num), nom))
         self.clear_grid()
         self.grid_spacers()
         self.load_pending()
@@ -194,27 +196,34 @@ class MainWindow(QMainWindow):
         self.labelTurno.setText(f"{servicio}-{numero} . {nombre}")
 
     def handle_server_update(self, message):
-        print(f"Handling server update: {message}")
+        print(f"Handling message:\n{message}\n")
         try:
-            if message == "RECONNECT_RABBITMQ":
-                self.setup_rabbitmq()
-            elif message.startswith("NEW_TURN:"):
+            if message.startswith("NEW_TURN:"):
                 _, turnInfo, nombre = message.split(':')
                 servicio, numero = turnInfo.split('-')
-                self.queue[servicio].append((numero, nombre))
+                self.queue[servicio].append((int(numero), nombre))
                 self.add_pending_turn(servicio, numero, nombre)
+
             elif message.startswith("CALLED:"):
                 _, turnInfo, nombre = message.split(':')
                 servicio, numero = turnInfo.split('-')
+                print(f"Queue before called:\n{self.queue}\n")
                 self.update_grid(servicio, numero, nombre)
-            elif message == "QUEUE_ACK":
-                self.queue = self.convert_lists_to_tuples(self.queue)
-                print(self.queue)
-                self.update_grid()
 
+            elif message.startswith("ACK_LOGIN_REQUEST:"):
+                _, userID = message.split(':')
+                self.dialog.verify_credentials(userID)
+
+            elif message.startswith('ACK_NEXT_TURN:'):
+                _, turnInfo, nombre = message.split(':')
+                servicio, numero = turnInfo.split('-')
+                self.update_called_turn(servicio, numero, nombre)
+
+            else:
+                self.queue = self.convert_lists_to_tuples(json.loads(message))
+                self.update_grid()
         except:
             traceback.print_exc()
-            print("^Error handling server update. Read traceback above^")
 
     def style_label(self, label, fontSize, color):
         styleSheet = f"""
@@ -261,37 +270,31 @@ class MainWindow(QMainWindow):
         layout.addWidget(label)
 
     def convert_lists_to_tuples(self, dict):
-        print("Converting dict")
         return {key: [tuple(item) for item in value] for key, value in dict.items()}
 
     def screen_width(self, num):
-        """Returns pixel value of screen width % based on parameter"""
         return int(self.screenGeometry.width()*num/100)
+    
     def screen_height(self, num):
-        """Returns pixel value of screen height % based on parameter"""
         return int(self.screenGeometry.height()*num/100)
 
     def show_login(self):
-        dialog = LoginDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
-            print(f"Current User ID: {dialog.userID}")
-            self.userID = dialog.userID
+        self.dialog = LoginDialog(self)
+        self.setup_rabbitmq()
+        if self.dialog.exec_() == QDialog.Accepted:
+            self.userID = self.dialog.userID
+            self.loggedOut = False
             self.labelTitle.setText(f"Funcionario {self.userID}")
-            self.shutdownFlag = False
-            self.setup_rabbitmq()
-            print("Rabbitmq set up")
+            #self.setup_rabbitmq()
             self.request_queue()
             self.show()
         else:
             self.close()
 
     def log_out(self):
-        self.shutdownFlag = True
-        
         time.sleep(0.1)
-        self.cleanup_connections()
-
         self.userID = None
+        self.loggedOut = True
         self.close()
         self.show_login()
 
@@ -300,215 +303,130 @@ class MainWindow(QMainWindow):
         palette.setColor(QPalette.Background, QColor(color))
         widget.setAutoFillBackground(True)
         widget.setPalette(palette)
-        
+
     def setup_rabbitmq(self):
         try:
-            if not self.connectionLock.acquire(blocking=False):
-                print("Could not acquire lock for RabbitMQ")
-                return
-            try:
-                self.unsafe_cleanup_connections()
+            parameters = pika.ConnectionParameters(
+                host='localhost')
+                #heartbeat=30,
+                #blocked_connection_timeout=5,
+                #connection_attempts=3,
+                #retry_delay=1)
+            self.connection = pika.BlockingConnection(parameters)
+            print(f"Connection status: {self.connection.is_open}")
+            self.channel = self.connection.channel()
+            self.channel.exchange_declare(
+                exchange='digiturno_direct',
+                exchange_type='direct',
+                durable=True)
+            self.setup_consumers()
+            self.rabbitmqThread = threading.Thread(
+                target=self.start_consumer,
+                daemon=True)
+            self.rabbitmqThread.start()
+        except Exception as e:
+            print(f"Error setting up rabbitmq: {e}\nRetrying in 5 seconds...")
+            QTimer.singleShot(5000, self.setup_rabbitmq)
+    
+    def setup_consumers(self):
+        """Declare consumer queues and bindings"""
+        self.channel.queue_declare(queue='broadcast_queue', durable=True)
+        self.channel.queue_bind(
+            exchange='digiturno_broadcast',
+            queue='broadcast_queue',
+            routing_key='')
+        self.channel.queue_declare(queue=f'ack_queue_{self.id}', durable=True)
+        self.channel.queue_bind(
+            exchange='ack_exchange',
+            queue=f'ack_queue_{self.id}',
+            routing_key=str(self.id))
+        self.channel.basic_consume(
+            queue='broadcast_queue',
+            on_message_callback=self.handle_message,
+            auto_ack=True)
+        self.channel.basic_consume(
+            queue=f'ack_queue_{self.id}',
+            on_message_callback=self.handle_message,
+            auto_ack=True)
 
-                parameters = pika.ConnectionParameters(
-                    host='localhost',
-                    heartbeat=15,
-                    blocked_connection_timeout=2,
-                    connection_attempts=5,
-                    retry_delay=1)
-                
-                self.command_connection = pika.BlockingConnection(parameters)
-                self.command_channel = self.command_connection.channel()
-                
-                self.broadcast_connection = pika.BlockingConnection(parameters)
-                self.broadcast_channel = self.broadcast_connection.channel()
+    def start_consumer(self):
+        try:
+            self.channel.start_consuming()
+        except: pass
 
-                self.ack_connection = pika.BlockingConnection(parameters)
-                self.ack_channel = self.ack_connection.channel()
-                
-                self.command_channel.exchange_declare(
-                    exchange='ack_exchange',
-                    exchange_type='direct',
-                    durable=True)
-
-                if self.userID:
-                    self.ack_queue = f'ack_queue_{self.userID}'
-                    self.ack_channel.queue_declare(
-                        queue=self.ack_queue,
-                        exclusive=True)
-
-                    self.ack_channel.queue_bind(
-                        exchange='ack_exchange',
-                        queue=self.ack_queue,
-                        routing_key=str(self.userID))
-                    
-                    self.ack_channel.basic_consume(
-                        queue=self.ack_queue,
-                        on_message_callback=self.handle_ack,
-                        auto_ack=True)
-                    
-                    self.ack_thread = threading.Thread(
-                        target=self.start_ack_consumer,
-                        daemon=True)
-                    self.ack_thread.start()
-
-                result = self.broadcast_channel.queue_declare(queue='', exclusive=True)
-                self.broadcast_channel.queue_bind(
-                    exchange='digiturno_broadcast',
-                    queue=result.method.queue)
-                
-                self.broadcast_channel.basic_consume(
-                    queue=result.method.queue,
-                    on_message_callback=self.handle_broadcast)
-                
-                self.broadcast_thread = threading.Thread(
-                    target=self.start_broadcast_consumer,
-                    daemon=True)
-                self.broadcast_thread.start()
-                
-            except Exception as e:
-                traceback.print_exc()
-                print("^Error with RabbitMQ setup. Read traceback above^")
-                self.unsafe_cleanup_connections()
-                QTimer.singleShot(5000, self.setup_rabbitmq)
-            finally:
-                self.connectionLock.release()
-        except:
-            traceback.print_exc()
-            print("^Lock aquisition failed. Read traceback above^")
-
-    def start_consumer(self,consumer):
-        while not self.shutdownFlag:
-            try:
-                if not hasattr(self, f'{consumer}_channel') or \
-                not getattr(self, f'{consumer}_channel').is_open:
-                    if self.shutdownFlag: break
-                    time.sleep(0.5)
-                    continue
-                getattr(self, f'{consumer}_channel').start_consuming()
-            except pika.exceptions.StreamLostError:
-                if not self.shutdownFlag:
-                    self.updateUIsignal.emit("RECONNECT_RABBITMQ")
-                continue
-            except Exception as e:
-                if not self.shutdownFlag:
-                    time.sleep(0.5)
-                continue
-
-    def start_broadcast_consumer(self):
-        self.start_consumer('broadcast')
-
-    def start_ack_consumer(self):
-        self.start_consumer('ack')
-
-    def cleanup_connections(self):
-        """Thread-safe connection cleanup"""
-        if self.connectionLock.locked():
-            self.unsafe_cleanup_connections()
-        else:
-            with self.connectionLock:
-                self.unsafe_cleanup_connections()
-
-    def unsafe_cleanup_connections(self):
-        """Actual cleanup logic without locking"""
-        def safe_close(conn):
-            try:
-                if conn and conn.is_open:
-                    conn.close()
-            except: pass
-        def safe_stop_consuming(chan):
-            try:
-                if chan and chan.is_open:
-                    chan.stop_consuming()
-            except: pass
-
-        # Clean up connections
-        for connType in ['broadcast', 'command', 'ack']:
-            channel = getattr(self, f'{connType}_channel', None)
-            connection = getattr(self, f'{connType}_connection', None)
-            if channel:
-                safe_stop_consuming(channel)
-                delattr(self, f'{connType}_channel')
-            if connection:
-                safe_close(connection)
-                delattr(self, f'{connType}_connection')
-
-    def closeEvent(self, event):
-        self.shutdownFlag = True
-        self.unsafe_cleanup_connections()
-        super().closeEvent(event)
-
-    def handle_broadcast(self, ch, method, properties, body):
+    def handle_message(self, channel, method, properties, body):
         try:
             message = body.decode('utf-8')
             self.updateUIsignal.emit(message)
-            print(f"Broadcast handled: {message}")
         except Exception as e:
-            print(f"Error processing broadcast: {e}")
+            print(f"Error processing message: {e}")
 
-    def handle_ack(self, ch, method, properties, body):
-        message = body.decode('utf-8')
-        if message.startswith('ACK_NEXT_TURN:'):
-            _, turnInfo, nombre = message.split(':')
-            servicio, numero = turnInfo.split('-')
-            self.update_called_turn(servicio, numero, nombre)
-            print(f"ack handled: {message}")
-        else:
-            print("Acknowledgment of queue request in progress...")
-            self.queue = json.loads(message)
-            self.updateUIsignal.emit("QUEUE_ACK")
-
-    def request_queue(self):
-        print("Sending queue request...")
+    def request_verification(self, username, password):
         try:
-            self.command_channel.basic_publish(
+            self.channel.basic_publish(
                 exchange='digiturno_direct',
                 routing_key='server_command',
-                body=f'QUEUE_REQUEST:{self.userID}')
+                body=f'LOGIN_REQUEST:{username}:{password}:{self.id}',
+                properties=pika.BasicProperties(delivery_mode=2))
         except:
             traceback.print_exc()
-            print("^Error requesting queue. Read traceback above^")
+            self.setup_rabbitmq()
+
+    def request_queue(self):
+        try:
+            self.channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'QUEUE_REQUEST:{self.id}')
+        except:
+            traceback.print_exc()
             self.setup_rabbitmq()
 
     def call_next_turn(self, servicio, numero):
-        """Send message to call next turn. Parameters:
-        
-        servicio (Str): Turn's service type
-        
-        numero (int): Turn number"""
         try:
-            self.command_channel.basic_publish(
+            self.channel.basic_publish(
                 exchange='digiturno_direct',
                 routing_key='server_command',
                 body=f'NEXT_TURN:{self.userID}:{servicio}-{numero}')
         except:
             traceback.print_exc()
-            print("^Error calling next turn. Read traceback above^")
             self.setup_rabbitmq()
 
     def complete_current_turn(self):
         if self.labelTurno.text() != "-":
             try:
-                self.command_channel.basic_publish(
+                self.channel.basic_publish(
                     exchange='digiturno_direct',
                     routing_key='server_command',
                     body=f'COMPLETE_TURN:{self.userID}')
                 self.labelTurno.setText("-")
             except:
                 traceback.print_exc()
-                print(f"^Error completing turn. Read traceback above^")
                 self.setup_rabbitmq()
 
     def cancel_current_turn(self):
         if self.labelTurno.text() != "-":
             try:
-                self.command_channel.basic_publish(
+                self.channel.basic_publish(
                     exchange='digiturno_direct',
                     routing_key='server_command',
                     body=f'CANCEL_TURN:{self.userID}')
                 self.labelTurno.setText("-")
-            except Exception as e:
-                print(f"Error canceling turn: {e}")
+            except:
+                traceback.print_exc()
                 self.setup_rabbitmq()
+
+    def cleanup_connections(self):
+        if self.channel and self.channel.is_open:
+            self.channel.close()
+        if self.connection and self.connection.is_open:
+            self.connection.close()
+
+    def closeEvent(self, event):
+        if not self.loggedOut:
+            self.rabbitmqThread.join()
+            self.cleanup_connections()
+        super().closeEvent(event)
 
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
@@ -527,25 +445,22 @@ class LoginDialog(QDialog):
         self.password.setEchoMode(QLineEdit.Password)
         
         self.loginButton = QPushButton("Iniciar sesión")
-        self.loginButton.clicked.connect(self.verify_credentials)
+        self.loginButton.clicked.connect(self.request_verification_dialog)
         
         self.layout.addWidget(self.username)
         self.layout.addWidget(self.password)
         self.layout.addWidget(self.loginButton)
         self.setLayout(self.layout)
 
-    def verify_credentials(self):
-        conn = sqlite3.connect('digiturno.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT id FROM funcionarios
-            WHERE usuario = ? AND contrasena = ?
-        ''', (self.username.text(), self.password.text()))
-        result = cursor.fetchone()
-        conn.close()
-        
-        if result:
-            self.userID = result[0]
+    def request_verification_dialog(self):
+        if self.username.text() != "" and self.password.text() != "":
+            client.request_verification(self.username.text(), self.password.text())
+        else:
+            QMessageBox.warning(self, "Error", "Llene ambos campos.")
+
+    def verify_credentials(self, userID=None):
+        if userID and userID != "NO_ACCESS":
+            self.userID = int(userID[0])
             self.accept()
         else:
             QMessageBox.warning(self, "Error", "Credenciales inválidas.")

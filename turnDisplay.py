@@ -181,6 +181,9 @@ class Digiturno(QMainWindow):
             _, funcionario = command.split(':')
             print(f"{funcionario} requesting queue") # Debug
             self.ack_queue_request(funcionario)
+        elif command.startswith('LOGIN_REQUEST:'):
+            _, username, password, rk = command.split(':')
+            self.ack_login_request(username, password, rk)
 
     def new_turn(self, cedula, servicio):
         """Handles new turns"""
@@ -218,11 +221,8 @@ class Digiturno(QMainWindow):
     
     def next_turn(self, funcionario, servicio, numero):
         """Updates queue, serving and DB when a turn is called. Parameters:
-        
         funcionario (int): id from funcionarios DB
-        
         servicio (Str): Turn's service type
-        
         numero (int): Turn number"""
         turno = f'{servicio}-{numero}'
         with sqlite3.connect(db_path) as conn:
@@ -617,11 +617,7 @@ class Digiturno(QMainWindow):
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
     def ack_next_turn(self, routingKey, servicio, numero, nombre):
-        """Send direct acknowledgement message to sender funcionario after next turn. Parameters:
-        routingKey (Str or int): Use funcionario's id as routing_key
-        servicio (Str): Turn's service type
-        numero (int): Turn number
-        nombre (Str): Customer's name"""
+        """Send direct acknowledgement message to sender funcionario after next turn."""
         self.channel.basic_publish(
             exchange='ack_exchange',
             routing_key=str(routingKey),
@@ -631,7 +627,7 @@ class Digiturno(QMainWindow):
 
     def ack_queue_request(self, routingKey):
         queue = {}
-        for service, numbers in self.queue.items():
+        for service, numbers in self.queue.items(): # Merge turn info from self.queue and self.queueNames
             queue[service] = [(num, self.queueNames[f"{service}-{num}"]) for num in numbers]
         self.channel.basic_publish(
             exchange='ack_exchange',
@@ -640,6 +636,25 @@ class Digiturno(QMainWindow):
             properties=pika.BasicProperties(delivery_mode=2))
         print("Ack sent with queue")
         print(queue)
+
+    def ack_login_request(self, username, password, routingKey):
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id FROM funcionarios
+                WHERE usuario = ? AND contrasena = ?
+            ''', (username, password))
+            userID = cursor.fetchone()
+            if userID:
+                userID = userID[0]
+            else:
+                userID = 'NO_ACCESS'
+        self.channel.basic_publish(
+            exchange='ack_exchange',
+            routing_key=str(routingKey),
+            body=f'ACK_LOGIN_REQUEST:{userID}',
+            properties=pika.BasicProperties(delivery_mode=2))
+        print(f"login request ack sent, user ID: {userID}, routing key: {routingKey}")
 
     def broadcast_update(self, message):
         """Call this whenever you need to notify all staff"""
@@ -650,6 +665,8 @@ class Digiturno(QMainWindow):
     
     def closeEvent(self, event):
         """Clean up on window close"""
+        if hasattr(self, 'rabbitmq_thread') and self.rabbitmq_thread.is_alive():
+            self.rabbitmq_thread.join(timeout=1.0)
         if hasattr(self, 'connection'):
             self.connection.close()
         super().closeEvent(event)
