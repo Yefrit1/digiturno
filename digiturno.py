@@ -1,9 +1,11 @@
-import sys, sqlite3, traceback, pika
+import sys, traceback, pika, threading, json
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 
 class MainWindow(QMainWindow):
+    commandSignal = pyqtSignal(str)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Digiturno COOHEM")
@@ -20,8 +22,8 @@ class MainWindow(QMainWindow):
         self.nombre = ""
         self.cedula = ""
         self.asociado = False
-        self.queue = {'AS': [0], 'CA': [0], 'CO': [0], 'CT': [0]}
-
+        self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
+        '''
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -31,7 +33,7 @@ class MainWindow(QMainWindow):
                 ORDER BY creado
             """)
         for servicio, numero in cursor.fetchall():
-            self.queue[servicio].append(numero)
+            self.queue[servicio].append(numero)'''
 
 ####### Layout 0: CÉDULA #######
         self.ced = QWidget()
@@ -296,6 +298,9 @@ class MainWindow(QMainWindow):
         self.stackedWidget.addWidget(self.turn)
 
         self.showFullScreen()
+        self.setup_rabbitmq()
+        self.commandSignal.connect(self.handle_command)
+        self.request_queue()
 
     # Called when a button from the keypad is pressed
     def kpad_pressed(self):
@@ -340,16 +345,7 @@ class MainWindow(QMainWindow):
     def ced_confirm(self):
         self.cedula = self.lineID.text().strip()
         if self.cedula:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute('SELECT * FROM clientes WHERE identificacion =  ?', (self.cedula,))
-                customerInfo = cursor.fetchall()
-            if customerInfo: # Sets self.asociado to True if the customer's ID exists in the DB and is asociado
-                self.asociado = customerInfo[0][3] == 1
-                self.stackedWidget.setCurrentIndex(2) # Sends to layout 2 (SERVICIO)
-            else:
-                self.stackedWidget.setCurrentIndex(1) # Sends to layout 1 (NOMBRE)
-            self.prevIndex = 0
+            self.request_ID_check(self.cedula)
         else:
             pass # No number input
         self.lineID.setText("")
@@ -358,19 +354,7 @@ class MainWindow(QMainWindow):
     def nom_confirm(self):
         self.nombre = self.lineNom.text().strip()
         if self.nombre:
-            try: # Insert new customer into DB
-                with sqlite3.connect(self.db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute('''
-                        INSERT INTO clientes (identificacion, nombre, asociado)
-                        VALUES (?, ?, False)
-                    ''', (self.cedula, self.nombre))
-                    conn.commit()
-            except Exception as e:
-                traceback.print_exc()
-                conn.rollback()
-            self.stackedWidget.setCurrentIndex(2)
-            self.prevIndex = 1
+            self.send_customer_name(self.nombre)
         else:
             pass # No name input
         self.lineNom.setText("")
@@ -411,27 +395,9 @@ class MainWindow(QMainWindow):
                 turnNumber = self.queue[servicio][-1] + 1
                 self.queue[servicio].append(turnNumber)
                 self.turno.setText(f"{servicio}-{turnNumber}")
-        self.send_command(servicio)
+        self.send_new_turn(servicio)
         self.stackedWidget.setCurrentIndex(3)
         self.prevIndex = 2
-    
-    def send_command(self, servicio):
-        try:
-            connection = pika.BlockingConnection(
-                pika.ConnectionParameters('localhost'))
-            channel = connection.channel()
-            
-            channel.basic_publish(
-                exchange='digiturno_direct',
-                routing_key='server_command',
-                body=f'NEW_TURN:{self.cedula}:{servicio}',
-                properties=pika.BasicProperties(
-                    delivery_mode=2  # Make message persistent
-                ))
-            connection.close()
-        except Exception as e:
-            print(f"Failed to send message: {e}")
-            traceback.print_exc()
     
     # Sets stylesheet for a label
     def style_label(self, label, fontSize):
@@ -547,23 +513,113 @@ class MainWindow(QMainWindow):
     def screen_height(self, num):
         return int(self.screenGeometry.height()*num/100)
     
-    def send_turn_request(self, servicio):
+    def setup_rabbitmq(self):
+        parameters = pika.ConnectionParameters(host='localhost')
+        self.connection = pika.BlockingConnection(parameters)
+        self.channel = self.connection.channel()
+
+        self.channel.exchange_declare(
+            exchange='digiturno_direct',
+            exchange_type='direct',
+            durable=True)
+        
+        self.channel.queue_declare(queue='ack_queue_user', durable=True)
+        self.channel.queue_bind(
+            exchange='ack_exchange',
+            queue='ack_queue_user',
+            routing_key='user')
+        
+        self.channel.basic_consume(
+            queue='ack_queue_user',
+            on_message_callback=self.handle_message,
+            auto_ack=True)
+
+        self.rabbitmq_thread = threading.Thread(
+            target=self.start_consumer,
+            daemon=True)
+        self.rabbitmq_thread.start()
+        
+    def start_consumer(self):
+        self.channel.start_consuming()
+    
+    def handle_message(self, channel, method, properties, body):
         try:
-            connection = pika.BlockingConnection(
-                pika.ConnectionParameters('localhost'))
-            channel = connection.channel()
-            
-            channel.basic_publish(
+            message = body.decode('utf-8')
+            self.commandSignal.emit(message)
+        except Exception as e:
+            print(f"Error processing message: {e}")
+    
+    def handle_command(self, command):
+        if command.startswith('ACK_CUSTOMER_ID_CHECK:'):
+            _, reg, nom, asc = command.split(':')
+            if reg == '1':
+                self.nombre = nom
+                self.asociado = asc == '1'
+                self.stackedWidget.setCurrentIndex(2) # Sends to layout 2 (SERVICIO)
+            else:
+                self.stackedWidget.setCurrentIndex(1) # Sends to layout 1 (NOMBRE)
+            self.prevIndex = 0
+        elif command.startswith('ACK_NEW_CUSTOMER:'):
+            _, ced, nom = command.split(':')
+            self.nombre = nom
+            self.stackedWidget.setCurrentIndex(2) # Sends to layout 2 (SERVICIO)
+            self.prevIndex = 1
+        elif command.startswith('ACK_NEW_TURN:'):
+            _, serv = command.split(':')
+            self.queue[serv].append(self.queue[serv][-1]+1)
+        else:
+            self.queue = json.loads(command)
+            for key in self.queue:
+                if not self.queue[key]:  # Checks if list is empty
+                    self.queue[key].append(0)
+
+    def send_new_turn(self, servicio):
+        try:
+            self.channel.basic_publish(
                 exchange='digiturno_direct',
                 routing_key='server_command',
-                body=f'NEWTURN_{self.cedula}_{servicio[:2].upper()}',
-                properties=pika.BasicProperties(
-                    delivery_mode=2  # Make message persistent
-                ))
-            
-            connection.close()
+                body=f'NEW_TURN:{self.cedula}:{servicio}',
+                properties=pika.BasicProperties(delivery_mode=2))
         except:
             traceback.print_exc()
+    
+    def request_queue(self):
+        try:
+            self.channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body='SIMPLE_QUEUE_REQUEST',
+                properties=pika.BasicProperties(delivery_mode=2))
+        except:
+            traceback.print_exc()
+    
+    def request_ID_check(self, cedula):
+        try:
+            self.channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'CUSTOMER_ID_CHECK:{cedula}',
+                properties=pika.BasicProperties(delivery_mode=2))
+        except:
+            traceback.print_exc()
+    
+    def send_customer_name(self, nombre):
+        try:
+            self.channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'NEW_CUSTOMER:{self.cedula}:{nombre}',
+                properties=pika.BasicProperties(delivery_mode=2))
+        except:
+            traceback.print_exc()
+
+    def closeEvent(self, event):
+        """Clean up on window close"""
+        if hasattr(self, 'rabbitmq_thread') and self.rabbitmq_thread.is_alive():
+            self.rabbitmq_thread.join(timeout=1.0)
+        if hasattr(self, 'connection'):
+            self.connection.close()
+        super().closeEvent(event)
     
 if __name__ == "__main__":
     app = QApplication(sys.argv)

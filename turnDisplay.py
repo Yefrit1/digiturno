@@ -184,6 +184,14 @@ class Digiturno(QMainWindow):
         elif command.startswith('LOGIN_REQUEST:'):
             _, username, password, rk = command.split(':')
             self.ack_login_request(username, password, rk)
+        elif command.startswith('CUSTOMER_ID_CHECK:'):
+            _, cedula = command.split(':')
+            self.ack_customer_ID_check(cedula)
+        elif command.startswith('NEW_CUSTOMER:'):
+            _, cedula, nombre = command.split(':')
+            self.ack_new_customer(cedula, nombre)
+        elif command.startswith('SIMPLE_QUEUE_REQUEST'):
+            self.ack_simple_queue_request()
 
     def new_turn(self, cedula, servicio):
         """Handles new turns"""
@@ -214,6 +222,7 @@ class Digiturno(QMainWindow):
                 
                 self.update_waiting()
                 self.broadcast_update(f"NEW_TURN:{servicio}-{numero}:{nombre}")
+                self.ack_new_turn(servicio)
             except:
                 traceback.print_exc()
                 print("^Error handling new turn. Read traceback above^")
@@ -655,6 +664,66 @@ class Digiturno(QMainWindow):
             body=f'ACK_LOGIN_REQUEST:{userID}',
             properties=pika.BasicProperties(delivery_mode=2))
         print(f"login request ack sent, user ID: {userID}, routing key: {routingKey}")
+
+    def ack_customer_ID_check(self, cedula):
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM clientes WHERE identificacion =  ?', (cedula,))
+            customerInfo = cursor.fetchall()
+            if customerInfo:
+                reg = 1
+                nom = customerInfo[0][2]
+                asc = customerInfo[0][3]
+            else:
+                reg = 0
+                nom = 'NULL'
+                asc = 0
+        try:
+            self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key='user',
+                body=f'ACK_CUSTOMER_ID_CHECK:{reg}:{nom}:{asc}',
+                properties=pika.BasicProperties(delivery_mode=2))
+            print(f'Sent customer ID check acknowledgement\nregistered: {reg} , name: {nom} , asociado: {asc}') # Debug
+        except:
+            traceback.print_exc()
+    
+    def ack_new_customer(self, cedula, nombre):
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO clientes (identificacion, nombre, asociado)
+                VALUES (?, ?, False)
+            ''', (cedula, nombre))
+        try:
+            self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key='user',
+                body=f'ACK_NEW_CUSTOMER:{cedula}:{nombre}',
+                properties=pika.BasicProperties(delivery_mode=2))
+            print(f'New customer registered\nID: {cedula} , name: {nombre}')
+        except:
+            traceback.print_exc()
+    
+    def ack_new_turn(self, servicio):
+        try:
+            self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key='user',
+                body=f'ACK_NEW_TURN:{servicio}',
+                properties=pika.BasicProperties(delivery_mode=2))
+        except:
+            traceback.print_exc()
+    
+    def ack_simple_queue_request(self):
+        try:
+            self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key='user',
+                body=json.dumps(self.queue),
+                properties=pika.BasicProperties(delivery_mode=2))
+        except:
+            traceback.print_exc()
 
     def broadcast_update(self, message):
         """Call this whenever you need to notify all staff"""
