@@ -161,9 +161,6 @@ class Digiturno(QMainWindow):
         if command.startswith('NEW_TURN:'):
             _, cliente_id, servicio = command.split(':')
             self.new_turn(cliente_id, servicio)
-            self.new_turn(cliente_id, servicio)
-            self.new_turn(cliente_id, servicio)
-            self.new_turn(cliente_id, servicio)
             print(f"New turn received for {servicio}") # Debug
         # Handle command for next turn
         elif command.startswith('NEXT_TURN:'):
@@ -734,10 +731,12 @@ class Digiturno(QMainWindow):
     
     def closeEvent(self, event):
         """Clean up on window close"""
+        if hasattr(self, 'channel') and self.channel.is_open:
+            self.channel.close()
+        if hasattr(self, 'connection') and self.connection.is_open:
+            self.connection.close()
         if hasattr(self, 'rabbitmq_thread') and self.rabbitmq_thread.is_alive():
             self.rabbitmq_thread.join(timeout=1.0)
-        if hasattr(self, 'connection'):
-            self.connection.close()
         super().closeEvent(event)
 
 if __name__ == "__main__":
