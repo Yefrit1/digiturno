@@ -418,14 +418,15 @@ class MainWindow(QMainWindow):
 
     def cleanup_connections(self):
         if self.channel and self.channel.is_open:
+            self.channel.queue_delete(queue=f'ack_queue_{self.id}')
             self.channel.close()
         if self.connection and self.connection.is_open:
             self.connection.close()
 
     def closeEvent(self, event):
         if not self.loggedOut:
-            self.rabbitmqThread.join()
             self.cleanup_connections()
+            self.rabbitmqThread.join(timeout=1.0)
         super().closeEvent(event)
 
 class LoginDialog(QDialog):
@@ -464,6 +465,11 @@ class LoginDialog(QDialog):
             self.accept()
         else:
             QMessageBox.warning(self, "Error", "Credenciales inválidas.")
+    
+    def closeEvent(self, event):
+        if client and hasattr(client, 'channel'):
+            client.channel.queue_delete(queue=f'ack_queue_{client.id}')
+        super().closeEvent(event)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
