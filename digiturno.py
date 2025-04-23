@@ -378,6 +378,7 @@ class MainWindow(QMainWindow):
             case 'Asesoría':
                 servicio = 'AS'
                 turnNumber = self.queue[servicio][-1]+1
+                print(f"New turn: {turnNumber}")
                 self.queue[servicio].append(turnNumber)
                 self.turno.setText(f"{servicio}-{turnNumber}")
             case 'Caja':
@@ -566,12 +567,13 @@ class MainWindow(QMainWindow):
             self.prevIndex = 1
         elif command.startswith('ACK_NEW_TURN:'):
             _, serv = command.split(':')
-            self.queue[serv].append(self.queue[serv][-1]+1)
+            print(f"New turn {serv}-{self.queue[serv][-1]} acknowledged") # Debug
         else:
             self.queue = json.loads(command)
             for key in self.queue:
                 if not self.queue[key]:  # Checks if list is empty
                     self.queue[key].append(0)
+            print(f"Got queue:\n{self.queue}")
 
     def send_new_turn(self, servicio):
         try:
@@ -615,10 +617,12 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Clean up on window close"""
+        if hasattr(self, 'channel') and self.channel.is_open:
+            self.channel.close()
+        if hasattr(self, 'connection') and self.connection.is_open:
+            self.connection.close()
         if hasattr(self, 'rabbitmq_thread') and self.rabbitmq_thread.is_alive():
             self.rabbitmq_thread.join(timeout=1.0)
-        if hasattr(self, 'connection'):
-            self.connection.close()
         super().closeEvent(event)
     
 if __name__ == "__main__":
