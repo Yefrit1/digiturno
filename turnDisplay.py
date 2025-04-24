@@ -154,41 +154,43 @@ class Digiturno(QMainWindow):
         verticalLayout.addLayout(self.waitLayout)
 
     def handle_command(self, command):
-        """Handle incoming commands. Parameters:
-        
-        command (Str): Body of the message"""
         print(f"Command received: {command}")
-        if command.startswith('NEW_TURN:'):
+        if command.startswith('NEW_TURN:'): # Producer: digiturno.py
             _, cliente_id, servicio = command.split(':')
             self.new_turn(cliente_id, servicio)
             print(f"New turn received for {servicio}") # Debug
-        # Handle command for next turn
-        elif command.startswith('NEXT_TURN:'):
+        elif command.startswith('NEXT_TURN:'): # Producer: funcionario.py
             _, funcionario, turno = command.split(':')
             servicio, numero = turno.split('-')
             print(f"{funcionario} calling turn {turno}")  # Debug
             self.next_turn(int(funcionario), servicio, int(numero))
-        # Handle command for cancel turn
-        elif command.startswith('CANCEL_TURN:'):
+        elif command.startswith('CANCEL_TURN:'): # Producer: funcionario.py
             _, funcionario = command.split(':')
             print(f"{funcionario} canceling current turn") # Debug
             self.cancel_turn(int(funcionario))
-        # Handle command for funcionario requesting queue
-        elif command.startswith('QUEUE_REQUEST:'):
+        elif command.startswith('QUEUE_REQUEST:'): # Producer: funcionario.py
             _, funcionario = command.split(':')
             print(f"{funcionario} requesting queue") # Debug
             self.ack_queue_request(funcionario)
-        elif command.startswith('LOGIN_REQUEST:'):
+        elif command.startswith('LOGIN_REQUEST:'): # Producer: funcionario.py
             _, username, password, rk = command.split(':')
             self.ack_login_request(username, password, rk)
-        elif command.startswith('CUSTOMER_ID_CHECK:'):
+        elif command.startswith('ADMIN_LOGIN_REQUEST:'): # Producer: admin.py
+            _, username, password = command.split(':')
+            self.ack_admin_login_request(username, password)
+        elif command.startswith('CUSTOMER_ID_CHECK:'): # Producer: digiturno.py
             _, cedula = command.split(':')
             self.ack_customer_ID_check(cedula)
-        elif command.startswith('NEW_CUSTOMER:'):
+        elif command.startswith('NEW_CUSTOMER:'): # Producer: digiturno.py
             _, cedula, nombre = command.split(':')
             self.ack_new_customer(cedula, nombre)
-        elif command.startswith('SIMPLE_QUEUE_REQUEST'):
+        elif command.startswith('SIMPLE_QUEUE_REQUEST'): # Producer: digiturno.py
             self.ack_simple_queue_request()
+        elif command.startswith('FUNCIONARIOS_LIST_REQUEST'):
+            self.ack_funcionarios_list_request()
+        elif command.startswith('FUNCIONARIOS_LIST_UPDATE:'):
+            self.funChanged = json.loads(command[len('FUNCIONARIOS_LIST_UPDATE:'):])
+            self.ack_funcionarios_list_update()
 
     def new_turn(self, cedula, servicio):
         """Handles new turns"""
@@ -661,6 +663,30 @@ class Digiturno(QMainWindow):
             body=f'ACK_LOGIN_REQUEST:{userID}',
             properties=pika.BasicProperties(delivery_mode=2))
         print(f"login request ack sent, user ID: {userID}, routing key: {routingKey}")
+    
+    def ack_admin_login_request(self, username, password):
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT id, rol FROM funcionarios 
+                WHERE usuario = ? AND contrasena = ?
+            ''', (username, password))
+            result = cursor.fetchone()
+        funID = None
+        isAdm = 0
+        if result:
+            funID = result[0]
+            if result[1] == 1:
+                isAdm = 1
+        try:
+            self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key='admin',
+                body=f'ACK_LOGIN_REQUEST:{funID}:{isAdm}',
+                properties=pika.BasicProperties(delivery_mode=2))
+            print(f'Admin login ack sent\nfunID: {funID} , isAdm: {isAdm}')
+        except:
+            traceback.print_exc()
 
     def ack_customer_ID_check(self, cedula):
         with sqlite3.connect(db_path) as conn:
@@ -721,6 +747,45 @@ class Digiturno(QMainWindow):
                 properties=pika.BasicProperties(delivery_mode=2))
         except:
             traceback.print_exc()
+    
+    def ack_funcionarios_list_request(self):
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, nombre, identificacion, usuario, contrasena, rol, estado FROM funcionarios")
+            users = cursor.fetchall()
+        try:
+            self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key='admin',
+                body=json.dumps(users),
+                properties=pika.BasicProperties(delivery_mode=2))
+            print(f'Funcionarios list sent:\n{users}')
+        except: traceback.print_exc()
+    
+    def ack_funcionarios_list_update(self):
+        try:
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                for row in self.funChanged:
+                    id_, nombre, identificacion, usuario, contrasena, rol = row
+                    rol = 1 if rol == 'Admin' else 0
+                    cursor.execute('''
+                        UPDATE funcionarios SET nombre = ?, identificacion = ?, usuario = ?, contrasena = ?, rol = ?
+                        WHERE id = ?
+                    ''', (nombre, identificacion, usuario, contrasena, rol, id_))
+            self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key='admin',
+                body='ACK_FUNCIONARIOS_LIST_UPDATE:good',
+                properties=pika.BasicProperties(delivery_mode=2))
+            print(f'Funcionarios list updated')
+        except Exception as e:
+            self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key='admin',
+                body='ACK_FUNCIONARIOS_LIST_UPDATE:error',
+                properties=pika.BasicProperties(delivery_mode=2))
+            print(f'Funcionarios list not updated, error: {e}')
 
     def broadcast_update(self, message):
         """Call this whenever you need to notify all staff"""

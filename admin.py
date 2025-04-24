@@ -1,4 +1,4 @@
-import sys, socket, sqlite3, time, traceback, io
+import sys, socket, sqlite3, time, traceback, io, pika, time, json, threading
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -6,6 +6,8 @@ from PyQt5.QtGui import *
 db_path = "digiturno.db"
 
 class MainWindow(QMainWindow):
+    commandSignal = pyqtSignal(str)
+
     def __init__(self):
         super().__init__()
         self.screenGeometry = QApplication.primaryScreen().geometry()
@@ -14,11 +16,15 @@ class MainWindow(QMainWindow):
         self.current_user = None
         self.init_db()
         self.init_ui()
+        self.modedRows = set()
+        self.setup_rabbitmq()
+        self.commandSignal.connect(self.handle_command)
+        self.request_users_list()
 
     def init_ui(self):
         self.setWindowTitle("Control Digiturno")
-        self.setGeometry(int(self.screenGeometry.width()/2 - 568),
-                         int(self.screenGeometry.height()/2 - 300), 1136, 600)
+        self.setGeometry(int(self.screenGeometry.width()/2 - 569),
+                         int(self.screenGeometry.height()/2 - 300), 1138, 600)
         
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -34,19 +40,51 @@ class MainWindow(QMainWindow):
         layout0 = QVBoxLayout(widget0)
         widget0.setLayout(layout0)
         #layout0.setAlignment(Qt.AlignTop)
-
         #
-        vBox01 = QVBoxLayout()
+        scrollArea = QScrollArea()
+        scrollArea.setWidgetResizable(True)
 
         self.tableStaff = QTableWidget()
-        self.tableStaff.setColumnCount(7)
-        self.tableStaff.setHorizontalHeaderLabels(["Nombre", "Cédula", "Usuario",
-                                                   "Contraseña", "Rol", "Estado", "Seleccionar"])
-        self.tableStaff.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.load_users()
-
-        vBox01.addWidget(self.tableStaff)
-        layout0.addLayout(vBox01)
+        self.tableStaff.setColumnCount(8)
+        self.tableStaff.setColumnHidden(0, True)
+        self.tableStaff.setHorizontalHeaderLabels(["ID", "Nombre", "Cédula", "Usuario",
+            "Contraseña", "Rol", "Estado", "Seleccionar"])
+        #self.tableStaff.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tableStaff.cellChanged.connect(self.on_cell_change)
+        
+        scrollArea.setWidget(self.tableStaff)
+        #
+        hBox0 = QHBoxLayout()
+        
+        self.buttonCrear = QPushButton('Crear')
+        self.buttonRevertir = QPushButton('Revertir')
+        self.buttonAplicar = QPushButton('Aplicar')
+        self.buttonBloquear = QPushButton('Bloquear')
+        self.buttonEliminar = QPushButton('Eliminar')
+        self.buttonDeselect = QPushButton('Deselect')
+        
+        self.buttonRevertir.setEnabled(False)
+        self.buttonAplicar.setEnabled(False)
+        self.buttonBloquear.setEnabled(False)
+        self.buttonEliminar.setEnabled(False)
+        self.buttonDeselect.setEnabled(False)
+        
+        self.buttonCrear.clicked.connect(self.crear_pressed)
+        self.buttonRevertir.clicked.connect(self.revertir_pressed)
+        self.buttonAplicar.clicked.connect(self.aplicar_pressed)
+        self.buttonBloquear.clicked.connect(self.bloquear_pressed)
+        self.buttonEliminar.clicked.connect(self.eliminar_pressed)
+        self.buttonDeselect.clicked.connect(self.deselect_pressed)
+        
+        hBox0.addWidget(self.buttonCrear)
+        hBox0.addWidget(self.buttonRevertir)
+        hBox0.addWidget(self.buttonAplicar)
+        hBox0.addWidget(self.buttonBloquear)
+        hBox0.addWidget(self.buttonEliminar)
+        hBox0.addWidget(self.buttonDeselect)
+        #
+        layout0.addWidget(scrollArea)
+        layout0.addLayout(hBox0)
 
 ####### Layout 1: VISTA MODIFICACIÓN #######
         
@@ -63,30 +101,90 @@ class MainWindow(QMainWindow):
         ''')
         conn.commit()
         conn.close()
-
+        
     def load_users(self):
-        try:
-            with sqlite3.connect(db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT nombre, identificacion, usuario, contrasena, rol, estado FROM funcionarios")
-                users = cursor.fetchall()
-
-            self.tableStaff.setRowCount(len(users))
-            for row, user in enumerate(users):
-                for col, data in enumerate(user):
+        self.tableStaff.blockSignals(True)
+        self.tableStaff.setRowCount(len(self.users))
+        self.buttonGroup = QButtonGroup()
+        self.buttonGroup.setExclusive(False)
+        self.buttonGroup.buttonToggled.connect(self.on_button_toggle)
+        
+        for row, user in enumerate(self.users):
+            for col, data in enumerate(user):
+                if col == 5:
+                    if data == 1: self.tableStaff.setItem(row, col, QTableWidgetItem('Admin'))
+                    else: self.tableStaff.setItem(row, col, QTableWidgetItem('Funcionario'))
+                elif col == 6:
+                    if data == 1: self.tableStaff.setItem(row, col, QTableWidgetItem('Activo'))
+                    else: self.tableStaff.setItem(row, col, QTableWidgetItem('Bloqueado'))
+                else:
                     self.tableStaff.setItem(row, col, QTableWidgetItem(str(data)))
-                self.tableStaff.setItem(row, 6, QTableWidgetItem(str("X")))
-            conn.close()
-        except Exception as e:
-            str_io = io.StringIO()
-            traceback.print_exc(file=str_io)
-            error_str = str_io.getvalue()
-            QMessageBox.warning(None, "Error loading users", error_str)
+                self.tableStaff.item(row, col).setTextAlignment(Qt.AlignCenter)
+            boton = QRadioButton()
+            bw = QWidget()
+            QHBoxLayout(bw).addWidget(boton)
+            bw.layout().setContentsMargins(0,0,0,0)
+            bw.layout().setAlignment(Qt.AlignCenter)
+            self.buttonGroup.addButton(boton, row)
+            self.tableStaff.setCellWidget(row, 7, bw)
+        self.tableStaff.blockSignals(False)
+    
+    def update_local_list(self):
+        for changed_row in self.usersChanged:
+            changed_id = str(changed_row[0])
+            for i, user_row in enumerate(self.users):
+                if str(user_row[0]) == changed_id:
+                    self.users[i] = changed_row
+                    break
+        
+    def on_cell_change(self, row:int, col:int):
+        "Called when one of the table's cells is modified, excuding radio buttons"
+        self.modedRows.add(row)
+        self.buttonRevertir.setEnabled(True)
+        self.buttonAplicar.setEnabled(True)
+    
+    def on_button_toggle(self, btn, checked): # If btn and checked are never used, replace them with *args
+        "Called when one of the table's radio buttons is toggled"
+        anyChecked = any(b.isChecked() for b in self.buttonGroup.buttons())
+        self.buttonEliminar.setEnabled(anyChecked)
+        self.buttonBloquear.setEnabled(anyChecked)
+        self.buttonDeselect.setEnabled(anyChecked)
+        
+    def crear_pressed(self):
+        pass
+    
+    def revertir_pressed(self):
+        self.load_users()
+        self.buttonRevertir.setEnabled(False)
+        self.buttonAplicar.setEnabled(False)
+    
+    def aplicar_pressed(self):
+        self.usersChanged = []
+        for row in self.modedRows:
+            rowData = []
+            for col in range(self.tableStaff.columnCount()-2):
+                item = self.tableStaff.item(row, col)
+                rowData.append(item.text() if item else "")
+            self.usersChanged.append(rowData)
+        print(self.usersChanged)
+        self.update_users_list()
+        self.buttonRevertir.setEnabled(False)
+        self.buttonAplicar.setEnabled(False)
+    
+    def bloquear_pressed(self):
+        pass
+    
+    def eliminar_pressed(self):
+        pass
+    
+    def deselect_pressed(self):
+        for btn in self.buttonGroup.buttons():
+            btn.setChecked(False)
 
     def show_login(self):
-        dialog = LoginDialog(self)
-        if dialog.exec_() == QDialog.Accepted:
-            self.current_user = dialog.user_id
+        self.dialog = LoginDialog(self)
+        if self.dialog.exec_() == QDialog.Accepted:
+            self.current_user = self.dialog.userID
         elif not self.current_user: self.close()
         
     def log_out(self):
@@ -101,6 +199,87 @@ class MainWindow(QMainWindow):
         palette.setColor(QPalette.Background, QColor(color))
         widget.setAutoFillBackground(True)
         widget.setPalette(palette)
+    
+    def setup_rabbitmq(self):
+        parameters = pika.ConnectionParameters(host='localhost')
+        self.connection = pika.BlockingConnection(parameters)
+        self.channel = self.connection.channel()
+
+        self.channel.exchange_declare(
+            exchange='digiturno_direct',
+            exchange_type='direct',
+            durable=True)
+        
+        self.channel.queue_declare(queue='ack_queue_admin', durable=True)
+        self.channel.queue_bind(
+            exchange='ack_exchange',
+            queue='ack_queue_admin',
+            routing_key='admin')
+        
+        self.channel.basic_consume(
+            queue='ack_queue_admin',
+            on_message_callback=self.handle_message,
+            auto_ack=True)
+
+        self.rabbitmq_thread = threading.Thread(
+            target=self.start_consumer,
+            daemon=True)
+        self.rabbitmq_thread.start()
+        
+    def start_consumer(self):
+        self.channel.start_consuming()
+
+    def handle_message(self, channel, method, properties, body):
+        try:
+            message = body.decode('utf-8')
+            self.commandSignal.emit(message)
+        except Exception as e:
+            print(f"Error processing message: {e}")
+    
+    def handle_command(self, command):
+        print(f"Handling command:\n{command}\n")
+        if command.startswith('ACK_LOGIN_REQUEST:'):
+            _, funID, isAdm = command.split(':')
+            self.dialog.verify_credentials(funID, isAdm)
+        elif command.startswith('ACK_FUNCIONARIOS_LIST_UPDATE:'):
+            _, check = command.split(':')
+            if check == 'good':
+                self.update_local_list()
+                QMessageBox.warning(self, "", "Cambios guardados")
+            else:
+                self.load_users()
+                QMessageBox.warning(self, "Error", "No se pudieron guardar los cambios")
+        else:
+            self.users = json.loads(command)
+            self.load_users()
+    
+    def request_verification(self, username, password):
+        try:
+            self.channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'ADMIN_LOGIN_REQUEST:{username}:{password}',
+                properties=pika.BasicProperties(delivery_mode=2))
+        except:
+            traceback.print_exc()
+
+    def request_users_list(self):
+        try:
+            self.channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'FUNCIONARIOS_LIST_REQUEST',
+                properties=pika.BasicProperties(delivery_mode=2))
+        except: traceback.print_exc()
+    
+    def update_users_list(self):
+        try:
+            self.channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'FUNCIONARIOS_LIST_UPDATE:{json.dumps(self.usersChanged)}',
+                properties=pika.BasicProperties(delivery_mode=2))
+        except: traceback.print_exc()
 
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
@@ -119,28 +298,26 @@ class LoginDialog(QDialog):
         self.password.setEchoMode(QLineEdit.Password)
         
         self.loginButton = QPushButton("Iniciar sesión")
-        self.loginButton.clicked.connect(self.verify_credentials)
+        self.loginButton.clicked.connect(self.request_verification_dialog)
         
         self.layout.addWidget(self.username)
         self.layout.addWidget(self.password)
         self.layout.addWidget(self.loginButton)
         self.setLayout(self.layout)
-
-    def verify_credentials(self):
-        conn = sqlite3.connect('digiturno.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT id, rol FROM funcionarios 
-            WHERE usuario = ? AND contrasena = ?
-        ''', (self.username.text(), self.password.text()))
-        result = cursor.fetchone()
-        conn.close()
         
-        if result and result[1]:
-            self.user_id = result[0]
-            self.accept()
+    def request_verification_dialog(self):
+        if self.username.text() != "" and self.password.text() != "":
+            client.request_verification(self.username.text(), self.password.text())
         else:
-            QMessageBox.warning(self, "Error", "Credenciales inválidas/usuario no admin")
+            QMessageBox.warning(self, "Error", "Llene ambos campos.")
+
+    def verify_credentials(self, funID, isAdmin):
+        if funID != 'None':
+            if isAdmin == '1':
+                self.userID = funID
+                self.accept()
+            else: QMessageBox.warning(self, "Error", "El usuario ingresado no es admin")
+        else: QMessageBox.warning(self, "Error", "Credenciales inválidas")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
