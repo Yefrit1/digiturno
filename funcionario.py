@@ -203,22 +203,20 @@ class MainWindow(QMainWindow):
                 servicio, numero = turnInfo.split('-')
                 self.queue[servicio].append((int(numero), nombre))
                 self.add_pending_turn(servicio, numero, nombre)
-
             elif message.startswith("CALLED:"):
                 _, turnInfo, nombre = message.split(':')
                 servicio, numero = turnInfo.split('-')
                 print(f"Queue before called:\n{self.queue}\n")
                 self.update_grid(servicio, numero, nombre)
-
             elif message.startswith("ACK_LOGIN_REQUEST:"):
                 _, userID = message.split(':')
                 self.dialog.verify_credentials(userID)
-
             elif message.startswith('ACK_NEXT_TURN:'):
                 _, turnInfo, nombre = message.split(':')
                 servicio, numero = turnInfo.split('-')
                 self.update_called_turn(servicio, numero, nombre)
-
+            elif message.startswith('ACK_CANCEL_TURN') or message.startswith('ACK_COMPLETE_TURN'):
+                self.labelTurno.setText("-")
             else:
                 self.queue = self.convert_lists_to_tuples(json.loads(message))
                 self.update_grid()
@@ -387,7 +385,7 @@ class MainWindow(QMainWindow):
             self.channel.basic_publish(
                 exchange='digiturno_direct',
                 routing_key='server_command',
-                body=f'NEXT_TURN:{self.userID}:{servicio}-{numero}')
+                body=f'NEXT_TURN:{self.userID}:{servicio}-{numero}:{self.id}')
         except:
             traceback.print_exc()
             self.setup_rabbitmq()
@@ -398,11 +396,9 @@ class MainWindow(QMainWindow):
                 self.channel.basic_publish(
                     exchange='digiturno_direct',
                     routing_key='server_command',
-                    body=f'COMPLETE_TURN:{self.userID}')
-                self.labelTurno.setText("-")
+                    body=f'COMPLETE_TURN:{self.userID}:{self.id}')
             except:
                 traceback.print_exc()
-                self.setup_rabbitmq()
 
     def cancel_current_turn(self):
         if self.labelTurno.text() != "-":
@@ -410,8 +406,7 @@ class MainWindow(QMainWindow):
                 self.channel.basic_publish(
                     exchange='digiturno_direct',
                     routing_key='server_command',
-                    body=f'CANCEL_TURN:{self.userID}')
-                self.labelTurno.setText("-")
+                    body=f'CANCEL_TURN:{self.userID}:{self.id}')
             except:
                 traceback.print_exc()
                 self.setup_rabbitmq()
@@ -419,7 +414,7 @@ class MainWindow(QMainWindow):
     def cleanup_connections(self):
         if self.channel and self.channel.is_open:
             self.channel.queue_delete(queue=f'ack_queue_{self.id}')
-            self.channel.close()
+            #self.channel.close()
         if self.connection and self.connection.is_open:
             self.connection.close()
 

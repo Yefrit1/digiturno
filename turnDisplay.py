@@ -160,14 +160,17 @@ class Digiturno(QMainWindow):
             self.new_turn(cliente_id, servicio)
             print(f"New turn received for {servicio}") # Debug
         elif command.startswith('NEXT_TURN:'): # Producer: funcionario.py
-            _, funcionario, turno = command.split(':')
+            _, funcionario, turno, rk = command.split(':')
             servicio, numero = turno.split('-')
             print(f"{funcionario} calling turn {turno}")  # Debug
-            self.next_turn(int(funcionario), servicio, int(numero))
+            self.next_turn(int(funcionario), servicio, int(numero), rk)
         elif command.startswith('CANCEL_TURN:'): # Producer: funcionario.py
-            _, funcionario = command.split(':')
+            _, funcionario, rk = command.split(':')
             print(f"{funcionario} canceling current turn") # Debug
-            self.cancel_turn(int(funcionario))
+            self.cancel_turn(int(funcionario), rk)
+        elif command.startswith('COMPLETE_TURN:'):
+            _, funcionario, rk = command.split(':')
+            self.complete_turn(int(funcionario), rk)
         elif command.startswith('QUEUE_REQUEST:'): # Producer: funcionario.py
             _, funcionario = command.split(':')
             print(f"{funcionario} requesting queue") # Debug
@@ -227,7 +230,7 @@ class Digiturno(QMainWindow):
                 print("^Error handling new turn. Read traceback above^")
                 conn.rollback()
     
-    def next_turn(self, funcionario, servicio, numero):
+    def next_turn(self, funcionario, servicio, numero, rk):
         """Updates queue, serving and DB when a turn is called. Parameters:
         funcionario (int): id from funcionarios DB
         servicio (Str): Turn's service type
@@ -259,17 +262,17 @@ class Digiturno(QMainWindow):
                 self.update_waiting()
                 self.show_alert(servicio, numero, funcionario, nombre)
                 self.broadcast_update(f"CALLED:{servicio}-{numero}:{nombre}")
-                self.ack_next_turn(funcionario, servicio, numero, nombre)
+                self.ack_next_turn(rk, servicio, numero, nombre)
             except:
                 traceback.print_exc()
                 print("^Error calling next turn. Read traceback above^")
                 conn.rollback()
 
-    def cancel_turn(self, funcionario):
+    def cancel_turn(self, funcionario, rk):
         """Cancel serving turn for funcionario. Updates DB and calls update_serving.
         Parameters:
-        
-        funcionario (int): id from funcionarios table"""
+        funcionario (int): id from funcionarios table
+        rk (Str): Routing key from producer to send ack"""
         if funcionario in self.servingStations and self.servingStations[funcionario]:
             servicio, numero = self.servingStations[funcionario]
             with sqlite3.connect(db_path) as conn:
@@ -294,12 +297,27 @@ class Digiturno(QMainWindow):
                             self.orderedServing.remove(tuple)
                     self.servingStations[funcionario] = None
                     self.update_serving()
+                    self.ack_chancel_turn(rk)
                     print(f"Servings: {self.orderedServing}")
                 except:
                     traceback.print_exc()
                     print(f"^Error canceling turn for {funcionario}. Read traceback above^")
                     conn.rollback()
-
+    
+    def complete_turn(self, funcionario, rk):
+        if funcionario in self.servingStations and self.servingStations[funcionario]:
+            print('Condition in complete_turn() met')
+            try:
+                for tuple in self.orderedServing:
+                    s, n = tuple[1].split('-')
+                    if s == self.servingStations[funcionario][0] and n == str(self.servingStations[funcionario][1]):
+                        self.orderedServing.remove(tuple)
+                self.servingStations[funcionario] = None
+                self.update_serving()
+                self.ack_complete_turn(rk)
+                print(f"Servings: {self.orderedServing}")
+            except: traceback.print_exc()
+        
     def update_serving(self):
         """Update UI with turns that are currently being served"""
         self.clear_grid(self.gridLayout)
@@ -511,8 +529,8 @@ class Digiturno(QMainWindow):
                     estado INTEGER DEFAULT 1,
                     atendidos_hoy INTEGER DEFAULT 0,
                     cancelados_hoy INTEGER DEFAULT 0,
-                    atendidos INTEGER,
-                    cancelados INTEGER
+                    atendidos INTEGER DEFAULT 0,
+                    cancelados INTEGER DEFAULT 0
                 )''')
             # Tabla de control de fecha
             self.cursor.execute('''
@@ -616,7 +634,9 @@ class Digiturno(QMainWindow):
     
     def start_rabbitmq_consumer(self):
         """Process RabbitMQ messages"""
-        self.channel.start_consuming()
+        try:
+            self.channel.start_consuming()
+        except: pass
     
     def handle_rabbitmq_command(self, ch, method, properties, body):
         """Handle incoming commands"""
@@ -632,6 +652,26 @@ class Digiturno(QMainWindow):
             body=f'ACK_NEXT_TURN:{servicio}-{numero}:{nombre}',
             properties=pika.BasicProperties(delivery_mode=2))
         print(f"Ack sent: RK:{routingKey}, turn:{servicio}-{numero}, name:{nombre}")
+    
+    def ack_chancel_turn(self, rk):
+        try:
+            self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key=str(rk),
+                body=f'ACK_CANCEL_TURN',
+                properties=pika.BasicProperties(delivery_mode=2))
+            print(f'Ack for turn cancel sent to {rk}')
+        except: traceback.print_exc()
+    
+    def ack_complete_turn(self, rk):
+        try:
+            self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key=str(rk),
+                body=f'ACK_COMPLETE_TURN',
+                properties=pika.BasicProperties(delivery_mode=2))
+            print(f'Ack for turn complete sent to {rk}')
+        except: traceback.print_exc()
 
     def ack_queue_request(self, routingKey):
         queue = {}
