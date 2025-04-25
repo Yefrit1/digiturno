@@ -458,13 +458,15 @@ class LoginDialog(QDialog):
         else:
             QMessageBox.warning(self, "Error", "Llene ambos campos.")
 
-    def verify_credentials(self, userID=None):
-        if userID and userID != "NO_ACCESS":
+    def verify_credentials(self, userID):
+        if userID == 'NOT_FOUND':
+            QMessageBox.warning(self, "Error", "Credenciales inválidas.")
+        elif userID == 'NO_ACCESS':
+            QMessageBox.warning(self, "Error", "Funcionario bloqueado.")
+        else:
             self.userID = int(userID[0])
             self.accept()
-        else:
-            QMessageBox.warning(self, "Error", "Credenciales inválidas.")
-    
+        
     def closeEvent(self, event):
         if client and hasattr(client, 'channel'):
             client.channel.queue_delete(queue=f'ack_queue_{client.id}')

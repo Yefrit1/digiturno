@@ -700,14 +700,15 @@ class Digiturno(QMainWindow):
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT id FROM funcionarios
+                SELECT id, estado FROM funcionarios
                 WHERE usuario = ? AND contrasena = ?
             ''', (username, password))
-            userID = cursor.fetchone()
-            if userID:
-                userID = userID[0]
-            else:
-                userID = 'NO_ACCESS'
+            result = cursor.fetchone()
+            if result:
+                if result[1] == 1:
+                    userID = result[0]
+                else: userID = 'NO_ACCESS' # If credentials are valid but user is blocked
+            else: userID = 'NOT_FOUND' # If credentials don't match any user
         self.channel.basic_publish(
             exchange='ack_exchange',
             routing_key=str(routingKey),
