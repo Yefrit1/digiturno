@@ -819,7 +819,8 @@ class Digiturno(QMainWindow):
                 cursor = conn.cursor()
                 for row in self.funChanged:
                     id_, nombre, identificacion, usuario, contrasena, rol = row
-                    rol = 1 if rol == 'Admin' else 0
+                    #rol = 1 if rol == 'Admin' else 0
+                    print(f'{rol} type {type(rol)}')
                     cursor.execute('''
                         UPDATE funcionarios SET nombre = ?, identificacion = ?, usuario = ?, contrasena = ?, rol = ?
                         WHERE id = ?

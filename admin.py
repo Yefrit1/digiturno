@@ -108,18 +108,22 @@ class MainWindow(QMainWindow):
         self.buttonGroup = QButtonGroup()
         self.buttonGroup.setExclusive(False)
         self.buttonGroup.buttonToggled.connect(self.on_button_toggle)
-        
+        roles = ['Funcionario', 'Admin']
         for row, user in enumerate(self.users):
             for col, data in enumerate(user):
                 if col == 5:
-                    if data == 1: self.tableStaff.setItem(row, col, QTableWidgetItem('Admin'))
-                    else: self.tableStaff.setItem(row, col, QTableWidgetItem('Funcionario'))
-                elif col == 6:
-                    if data == 1: self.tableStaff.setItem(row, col, QTableWidgetItem('Activo'))
-                    else: self.tableStaff.setItem(row, col, QTableWidgetItem('Bloqueado'))
+                    roleBox = QComboBox()
+                    roleBox.addItems(roles)
+                    self.tableStaff.setCellWidget(row, col, roleBox)
+                    roleBox.setCurrentIndex(1 if data == 1 else 0)
+                    roleBox.currentIndexChanged.connect(lambda idx, r=row: self.on_role_changed(r))
                 else:
-                    self.tableStaff.setItem(row, col, QTableWidgetItem(str(data)))
-                self.tableStaff.item(row, col).setTextAlignment(Qt.AlignCenter)
+                    if col == 6:
+                        if data == 1: self.tableStaff.setItem(row, col, QTableWidgetItem('Activo'))
+                        else: self.tableStaff.setItem(row, col, QTableWidgetItem('Bloqueado'))
+                    else:
+                        self.tableStaff.setItem(row, col, QTableWidgetItem(str(data)))
+                    self.tableStaff.item(row, col).setTextAlignment(Qt.AlignCenter)
             boton = QRadioButton()
             bw = QWidget()
             QHBoxLayout(bw).addWidget(boton)
@@ -139,6 +143,11 @@ class MainWindow(QMainWindow):
         
     def on_cell_change(self, row:int, col:int):
         "Called when one of the table's cells is modified, excuding radio buttons"
+        self.modedRows.add(row)
+        self.buttonRevertir.setEnabled(True)
+        self.buttonAplicar.setEnabled(True)
+    
+    def on_role_changed(self, row):
         self.modedRows.add(row)
         self.buttonRevertir.setEnabled(True)
         self.buttonAplicar.setEnabled(True)
@@ -163,8 +172,12 @@ class MainWindow(QMainWindow):
         for row in self.modedRows:
             rowData = []
             for col in range(self.tableStaff.columnCount()-2):
-                item = self.tableStaff.item(row, col)
-                rowData.append(item.text() if item else "")
+                if col == 5:
+                    widget = self.tableStaff.cellWidget(row, col)
+                    rowData.append(1 if widget.currentText()=='Admin' else 0)
+                else:
+                    item = self.tableStaff.item(row, col)
+                    rowData.append(item.text() if item else "")
             self.usersChanged.append(rowData)
         print(self.usersChanged)
         self.update_users_list()
