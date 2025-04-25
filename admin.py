@@ -325,11 +325,13 @@ class LoginDialog(QDialog):
             QMessageBox.warning(self, "Error", "Llene ambos campos.")
 
     def verify_credentials(self, funID, isAdmin):
-        if funID != 'None':
-            if isAdmin == '1':
-                self.userID = funID
-                self.accept()
-            else: QMessageBox.warning(self, "Error", "El usuario ingresado no es admin")
+        if funID != 'NOT_FOUND':
+            if funID != 'NO_ACCESS':
+                if isAdmin == '1':
+                    self.userID = funID
+                    self.accept()
+                else: QMessageBox.warning(self, "Error", "El usuario ingresado no es admin")
+            else: QMessageBox.warning(self, "Error", "Usuario bloqueado")
         else: QMessageBox.warning(self, "Error", "Credenciales inválidas")
 
 if __name__ == "__main__":

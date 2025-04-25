@@ -720,16 +720,18 @@ class Digiturno(QMainWindow):
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT id, rol FROM funcionarios 
+                SELECT id, rol, estado FROM funcionarios 
                 WHERE usuario = ? AND contrasena = ?
             ''', (username, password))
             result = cursor.fetchone()
-        funID = None
         isAdm = 0
         if result:
-            funID = result[0]
-            if result[1] == 1:
-                isAdm = 1
+            if result[2] == 1:
+                funID = result[0]
+                if result[1] == 1:
+                    isAdm = 1
+            else: funID = 'NO_ACCESS'
+        else: funID = 'NOT_FOUND'
         try:
             self.channel.basic_publish(
                 exchange='ack_exchange',
