@@ -413,10 +413,14 @@ class MainWindow(QMainWindow):
 
     def cleanup_connections(self):
         if self.channel and self.channel.is_open:
-            self.channel.queue_delete(queue=f'ack_queue_{self.id}')
-            #self.channel.close()
+            try:
+                self.channel.queue_delete(queue=f'ack_queue_{self.id}')
+                self.channel.queue_delete(queue=f'broadcast_queue_{client.id}')
+                self.channel.close()
+            except: pass
         if self.connection and self.connection.is_open:
-            self.connection.close()
+            try: self.connection.close()
+            except: pass
 
     def closeEvent(self, event):
         if not self.loggedOut:
@@ -464,6 +468,7 @@ class LoginDialog(QDialog):
     def closeEvent(self, event):
         if client and hasattr(client, 'channel'):
             client.channel.queue_delete(queue=f'ack_queue_{client.id}')
+            client.channel.queue_delete(queue=f'broadcast_queue_{client.id}')
         super().closeEvent(event)
 
 if __name__ == "__main__":
