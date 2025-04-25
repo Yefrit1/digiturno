@@ -328,10 +328,10 @@ class MainWindow(QMainWindow):
     
     def setup_consumers(self):
         """Declare consumer queues and bindings"""
-        self.channel.queue_declare(queue='broadcast_queue', durable=True)
+        self.channel.queue_declare(queue=f'broadcast_queue_{self.id}', durable=True)
         self.channel.queue_bind(
             exchange='digiturno_broadcast',
-            queue='broadcast_queue',
+            queue=f'broadcast_queue_{self.id}',
             routing_key='')
         self.channel.queue_declare(queue=f'ack_queue_{self.id}', durable=True)
         self.channel.queue_bind(
@@ -339,7 +339,7 @@ class MainWindow(QMainWindow):
             queue=f'ack_queue_{self.id}',
             routing_key=str(self.id))
         self.channel.basic_consume(
-            queue='broadcast_queue',
+            queue=f'broadcast_queue_{self.id}',
             on_message_callback=self.handle_message,
             auto_ack=True)
         self.channel.basic_consume(

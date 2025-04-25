@@ -154,44 +154,55 @@ class Digiturno(QMainWindow):
         verticalLayout.addLayout(self.waitLayout)
 
     def handle_command(self, command):
-        print(f"Command received: {command}")
-        if command.startswith('NEW_TURN:'): # Producer: digiturno.py
+        print(f"Command received: {command}") # Debug
+        if command.startswith('NEW_TURN:'):
+            # Producer: digiturno.py
             _, cliente_id, servicio = command.split(':')
             self.new_turn(cliente_id, servicio)
             print(f"New turn received for {servicio}") # Debug
-        elif command.startswith('NEXT_TURN:'): # Producer: funcionario.py
+        elif command.startswith('NEXT_TURN:'):
+            # Producer: funcionario.py
             _, funcionario, turno, rk = command.split(':')
             servicio, numero = turno.split('-')
             print(f"{funcionario} calling turn {turno}")  # Debug
             self.next_turn(int(funcionario), servicio, int(numero), rk)
-        elif command.startswith('CANCEL_TURN:'): # Producer: funcionario.py
+        elif command.startswith('CANCEL_TURN:'):
+            # Producer: funcionario.py
             _, funcionario, rk = command.split(':')
             print(f"{funcionario} canceling current turn") # Debug
             self.cancel_turn(int(funcionario), rk)
         elif command.startswith('COMPLETE_TURN:'):
             _, funcionario, rk = command.split(':')
             self.complete_turn(int(funcionario), rk)
-        elif command.startswith('QUEUE_REQUEST:'): # Producer: funcionario.py
+        elif command.startswith('QUEUE_REQUEST:'):
+            # Producer: funcionario.py
             _, funcionario = command.split(':')
             print(f"{funcionario} requesting queue") # Debug
             self.ack_queue_request(funcionario)
-        elif command.startswith('LOGIN_REQUEST:'): # Producer: funcionario.py
+        elif command.startswith('LOGIN_REQUEST:'):
+            # Producer: funcionario.py
             _, username, password, rk = command.split(':')
             self.ack_login_request(username, password, rk)
-        elif command.startswith('ADMIN_LOGIN_REQUEST:'): # Producer: admin.py
+        elif command.startswith('ADMIN_LOGIN_REQUEST:'):
+            # Producer: admin.py
             _, username, password = command.split(':')
             self.ack_admin_login_request(username, password)
-        elif command.startswith('CUSTOMER_ID_CHECK:'): # Producer: digiturno.py
+        elif command.startswith('CUSTOMER_ID_CHECK:'):
+            # Producer: digiturno.py
             _, cedula = command.split(':')
             self.ack_customer_ID_check(cedula)
-        elif command.startswith('NEW_CUSTOMER:'): # Producer: digiturno.py
+        elif command.startswith('NEW_CUSTOMER:'):
+            # Producer: digiturno.py
             _, cedula, nombre = command.split(':')
             self.ack_new_customer(cedula, nombre)
-        elif command.startswith('SIMPLE_QUEUE_REQUEST'): # Producer: digiturno.py
+        elif command.startswith('SIMPLE_QUEUE_REQUEST'):
+            # Producer: digiturno.py
             self.ack_simple_queue_request()
         elif command.startswith('FUNCIONARIOS_LIST_REQUEST'):
+            # Producer: admin.py
             self.ack_funcionarios_list_request()
         elif command.startswith('FUNCIONARIOS_LIST_UPDATE:'):
+            # Producer: admin.py
             self.funChanged = json.loads(command[len('FUNCIONARIOS_LIST_UPDATE:'):])
             self.ack_funcionarios_list_update()
 
