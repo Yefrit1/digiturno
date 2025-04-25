@@ -205,6 +205,9 @@ class Digiturno(QMainWindow):
             # Producer: admin.py
             self.funChanged = json.loads(command[len('FUNCIONARIOS_LIST_UPDATE:'):])
             self.ack_funcionarios_list_update()
+        elif command.startswith('DELETE_FUNCIONARIOS:'):
+            ids = json.loads(command[len('DELETE_FUNCIONARIOS:'):])
+            self.ack_delete_funcionarios(ids)
 
     def new_turn(self, cedula, servicio):
         """Handles new turns"""
@@ -841,6 +844,22 @@ class Digiturno(QMainWindow):
                 body='ACK_FUNCIONARIOS_LIST_UPDATE:error',
                 properties=pika.BasicProperties(delivery_mode=2))
             print(f'Funcionarios list not updated, error: {e}')
+    
+    def ack_delete_funcionarios(self, ids):
+        try:
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                for id_ in ids:
+                    cursor.execute('''
+                        DELETE FROM funcionarios WHERE id = ?
+                    ''', (int(id_),))
+            self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key='admin',
+                body=f'ACK_DELETE_FUNCIONARIOS:{ids}',
+                properties=pika.BasicProperties(delivery_mode=2))
+            print(f'Deleted funcionarios with ids:\n{ids}')
+        except: traceback.print_exc()
 
     def broadcast_update(self, message):
         """Call this whenever you need to notify all staff"""

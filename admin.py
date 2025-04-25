@@ -59,27 +59,23 @@ class MainWindow(QMainWindow):
         self.buttonCrear = QPushButton('Crear')
         self.buttonRevertir = QPushButton('Revertir')
         self.buttonAplicar = QPushButton('Aplicar')
-        self.buttonBloquear = QPushButton('Bloquear')
         self.buttonEliminar = QPushButton('Eliminar')
         self.buttonDeselect = QPushButton('Deselect')
         
         self.buttonRevertir.setEnabled(False)
         self.buttonAplicar.setEnabled(False)
-        self.buttonBloquear.setEnabled(False)
         self.buttonEliminar.setEnabled(False)
         self.buttonDeselect.setEnabled(False)
         
         self.buttonCrear.clicked.connect(self.crear_pressed)
         self.buttonRevertir.clicked.connect(self.revertir_pressed)
         self.buttonAplicar.clicked.connect(self.aplicar_pressed)
-        self.buttonBloquear.clicked.connect(self.bloquear_pressed)
         self.buttonEliminar.clicked.connect(self.eliminar_pressed)
         self.buttonDeselect.clicked.connect(self.deselect_pressed)
         
         hBox0.addWidget(self.buttonCrear)
         hBox0.addWidget(self.buttonRevertir)
         hBox0.addWidget(self.buttonAplicar)
-        hBox0.addWidget(self.buttonBloquear)
         hBox0.addWidget(self.buttonEliminar)
         hBox0.addWidget(self.buttonDeselect)
         #
@@ -126,7 +122,7 @@ class MainWindow(QMainWindow):
             QHBoxLayout(bw).addWidget(boton)
             bw.layout().setContentsMargins(0,0,0,0)
             bw.layout().setAlignment(Qt.AlignCenter)
-            self.buttonGroup.addButton(boton, row)
+            self.buttonGroup.addButton(boton, int(self.users[row][0])) # Assign button ID based on user ID
             self.tableStaff.setCellWidget(row, 7, bw)
         self.tableStaff.blockSignals(False)
     
@@ -137,6 +133,15 @@ class MainWindow(QMainWindow):
                 if str(user_row[0]) == changed_id:
                     self.users[i] = changed_row
                     break
+    
+    def clear_users(self, ids):
+        str_ids = set(str(id_) for id_ in ids)
+        self.users = [user for user in self.users if str(user[0]) not in str_ids]
+        for row in reversed(range(self.tableStaff.rowCount())):
+            item = self.tableStaff.item(row, 0)
+            if item and item.text() in str_ids:
+                self.tableStaff.removeRow(row)
+        print(f'Deleted users:\n{ids}')
         
     def on_cell_change(self, row:int, col:int):
         "Called when one of the table's cells is modified, excuding radio buttons"
@@ -153,7 +158,6 @@ class MainWindow(QMainWindow):
         "Called when one of the table's radio buttons is toggled"
         anyChecked = any(b.isChecked() for b in self.buttonGroup.buttons())
         self.buttonEliminar.setEnabled(anyChecked)
-        self.buttonBloquear.setEnabled(anyChecked)
         self.buttonDeselect.setEnabled(anyChecked)
         
     def crear_pressed(self):
@@ -184,11 +188,9 @@ class MainWindow(QMainWindow):
         self.buttonRevertir.setEnabled(False)
         self.buttonAplicar.setEnabled(False)
     
-    def bloquear_pressed(self):
-        pass
-    
     def eliminar_pressed(self):
-        pass
+        checked_ids = [self.buttonGroup.id(b) for b in self.buttonGroup.buttons() if b.isChecked()]
+        self.request_delete_users(checked_ids)
     
     def deselect_pressed(self):
         for btn in self.buttonGroup.buttons():
@@ -262,6 +264,9 @@ class MainWindow(QMainWindow):
             else:
                 self.load_users()
                 QMessageBox.warning(self, "Error", "No se pudieron guardar los cambios")
+        elif command.startswith('ACK_DELETE_FUNCIONARIOS:'):
+            _, ids = command.split(':')
+            self.clear_users(ids)
         else:
             self.users = json.loads(command)
             self.load_users()
@@ -291,6 +296,15 @@ class MainWindow(QMainWindow):
                 exchange='digiturno_direct',
                 routing_key='server_command',
                 body=f'FUNCIONARIOS_LIST_UPDATE:{json.dumps(self.usersChanged)}',
+                properties=pika.BasicProperties(delivery_mode=2))
+        except: traceback.print_exc()
+    
+    def request_delete_users(self, ids):
+        try:
+            self.channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'DELETE_FUNCIONARIOS:{json.dumps(ids)}',
                 properties=pika.BasicProperties(delivery_mode=2))
         except: traceback.print_exc()
 
