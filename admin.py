@@ -109,20 +109,17 @@ class MainWindow(QMainWindow):
         self.buttonGroup.setExclusive(False)
         self.buttonGroup.buttonToggled.connect(self.on_button_toggle)
         roles = ['Funcionario', 'Admin']
+        estados = ['Bloqueado', 'Activo']
         for row, user in enumerate(self.users):
             for col, data in enumerate(user):
-                if col == 5:
-                    roleBox = QComboBox()
-                    roleBox.addItems(roles)
-                    self.tableStaff.setCellWidget(row, col, roleBox)
-                    roleBox.setCurrentIndex(1 if data == 1 else 0)
-                    roleBox.currentIndexChanged.connect(lambda idx, r=row: self.on_role_changed(r))
+                if col > 4:
+                    comBox = QComboBox()
+                    comBox.addItems(roles if col==5 else estados)
+                    self.tableStaff.setCellWidget(row, col, comBox)
+                    comBox.setCurrentIndex(1 if data == 1 else 0)
+                    comBox.currentIndexChanged.connect(lambda idx, r=row: self.on_comboBox_change(r))
                 else:
-                    if col == 6:
-                        if data == 1: self.tableStaff.setItem(row, col, QTableWidgetItem('Activo'))
-                        else: self.tableStaff.setItem(row, col, QTableWidgetItem('Bloqueado'))
-                    else:
-                        self.tableStaff.setItem(row, col, QTableWidgetItem(str(data)))
+                    self.tableStaff.setItem(row, col, QTableWidgetItem(str(data)))
                     self.tableStaff.item(row, col).setTextAlignment(Qt.AlignCenter)
             boton = QRadioButton()
             bw = QWidget()
@@ -147,7 +144,7 @@ class MainWindow(QMainWindow):
         self.buttonRevertir.setEnabled(True)
         self.buttonAplicar.setEnabled(True)
     
-    def on_role_changed(self, row):
+    def on_comboBox_change(self, row):
         self.modedRows.add(row)
         self.buttonRevertir.setEnabled(True)
         self.buttonAplicar.setEnabled(True)
@@ -171,10 +168,13 @@ class MainWindow(QMainWindow):
         self.usersChanged = []
         for row in self.modedRows:
             rowData = []
-            for col in range(self.tableStaff.columnCount()-2):
+            for col in range(self.tableStaff.columnCount()-1):
                 if col == 5:
                     widget = self.tableStaff.cellWidget(row, col)
                     rowData.append(1 if widget.currentText()=='Admin' else 0)
+                elif col == 6:
+                    widget = self.tableStaff.cellWidget(row, col)
+                    rowData.append(1 if widget.currentText()=='Activo' else 0)
                 else:
                     item = self.tableStaff.item(row, col)
                     rowData.append(item.text() if item else "")

@@ -818,13 +818,13 @@ class Digiturno(QMainWindow):
             with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
                 for row in self.funChanged:
-                    id_, nombre, identificacion, usuario, contrasena, rol = row
-                    #rol = 1 if rol == 'Admin' else 0
-                    print(f'{rol} type {type(rol)}')
+                    id_, nombre, identificacion, usuario, contrasena, rol, estado = row
+                    print(f'role: {rol} type {type(rol)}')
+                    print(f'status: {estado} type {type(estado)}')
                     cursor.execute('''
-                        UPDATE funcionarios SET nombre = ?, identificacion = ?, usuario = ?, contrasena = ?, rol = ?
+                        UPDATE funcionarios SET nombre = ?, identificacion = ?, usuario = ?, contrasena = ?, rol = ?, estado = ?
                         WHERE id = ?
-                    ''', (nombre, identificacion, usuario, contrasena, rol, id_))
+                    ''', (nombre, identificacion, usuario, contrasena, rol, estado, id_))
             self.channel.basic_publish(
                 exchange='ack_exchange',
                 routing_key='admin',
