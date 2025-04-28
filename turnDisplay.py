@@ -205,6 +205,10 @@ class Digiturno(QMainWindow):
             # Producer: admin.py
             self.funChanged = json.loads(command[len('FUNCIONARIOS_LIST_UPDATE:'):])
             self.ack_funcionarios_list_update()
+        elif command.startswith('NEW_FUNCIONARIO:'):
+            # Producer: admin.py
+            self.newFun = json.loads(command[len('NEW_FUNCIONARIO:'):])
+            self.ack_new_funcionario()
         elif command.startswith('DELETE_FUNCIONARIOS:'):
             ids = json.loads(command[len('DELETE_FUNCIONARIOS:'):])
             self.ack_delete_funcionarios(ids)
@@ -845,6 +849,32 @@ class Digiturno(QMainWindow):
                 body='ACK_FUNCIONARIOS_LIST_UPDATE:error',
                 properties=pika.BasicProperties(delivery_mode=2))
             print(f'Funcionarios list not updated, error: {e}')
+    
+    def ack_new_funcionario(self):
+        try:
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO funcionarios (nombre, identificacion, usuario, contrasena, rol, estado)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (self.newFun[0], self.newFun[1], self.newFun[2], self.newFun[3], self.newFun[4], self.newFun[5]))
+                id_ = cursor.lastrowid
+            try:
+                self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key='admin',
+                body=f'ACK_NEW_FUNCIONARIO:good:{id_}:ignore',
+                properties=pika.BasicProperties(delivery_mode=2))
+            except: traceback.print_exc()
+        except sqlite3.IntegrityError as e:
+            try:
+                self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key='admin',
+                body=f'ACK_NEW_FUNCIONARIO:error:{e}',
+                properties=pika.BasicProperties(delivery_mode=2))
+                print(f'Error inserting new funcionario: {e}')
+            except: traceback.print_exc()
     
     def ack_delete_funcionarios(self, ids):
         try:

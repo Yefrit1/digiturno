@@ -82,10 +82,60 @@ class MainWindow(QMainWindow):
         layout0.addWidget(scrollArea)
         layout0.addLayout(hBox0)
 
-####### Layout 1: VISTA MODIFICACIÓN #######
+####### Layout 1: VISTA CREAR #######
+
+        widget1 = QWidget()
+        layout1 = QFormLayout(widget1)
+        widget1.setLayout(layout1)
+        #
+        self.nameInput = QLineEdit("")
+        self.idInput = QLineEdit("")
+        self.userNameInput = QLineEdit("")
+        self.passInput = QLineEdit("")
+        self.roleRB1 = QRadioButton("Funcionario")
+        self.roleRB2 = QRadioButton("Admin")
+        self.roleRB1.setChecked(True)
+        self.roleRBG = QButtonGroup()
+        self.statusRB1 = QRadioButton("Activo")
+        self.statusRB2 = QRadioButton("Bloqueado")
+        self.statusRBG = QButtonGroup()
+        self.statusRB1.setChecked(True)
+        self.roleRBG.addButton(self.roleRB1)
+        self.roleRBG.addButton(self.roleRB2)
+        
+        roleLayout = QHBoxLayout()
+        roleLayout.addWidget(self.roleRB1)
+        roleLayout.addWidget(self.roleRB2)
+        self.statusRBG.addButton(self.statusRB1)
+        self.statusRBG.addButton(self.statusRB2)
+        
+        statusLayout = QHBoxLayout()
+        statusLayout.addWidget(self.statusRB1)
+        statusLayout.addWidget(self.statusRB2)
+        
+        hBox1Cont = QWidget()
+        hBox1 = QHBoxLayout(hBox1Cont)
+        hBox1Cont.setLayout(hBox1)
+        
+        self.buttonVolver = QPushButton("Volver")
+        self.buttonVolver.clicked.connect(self.volver_pressed)
+        self.buttonCrear2 = QPushButton("Crear")
+        self.buttonCrear2.clicked.connect(self.crear2_pressed)
+        
+        hBox1.addWidget(self.buttonVolver)
+        hBox1.addWidget(self.buttonCrear2)
+        
+        layout1.addRow("Nombre:", self.nameInput)
+        layout1.addRow("Identificación (U):", self.idInput)
+        layout1.addRow("Contraseña:", self.passInput)
+        layout1.addRow("Nombre de usuario (U):", self.userNameInput)
+        layout1.addRow("Rol:", roleLayout)
+        layout1.addRow("Estado:", statusLayout)
+        layout1.addWidget(hBox1Cont)
         
 ####### Stack widgets #######
         self.stackedWidget.addWidget(widget0)
+        self.stackedWidget.addWidget(widget1)
 
     def init_db(self):
         conn = sqlite3.connect(db_path)
@@ -125,6 +175,37 @@ class MainWindow(QMainWindow):
             self.buttonGroup.addButton(boton, int(self.users[row][0])) # Assign button ID based on user ID
             self.tableStaff.setCellWidget(row, 7, bw)
         self.tableStaff.blockSignals(False)
+        
+    def redo_table(self):
+        self.revertir_pressed()
+        self.deselect_pressed()
+        self.tableStaff.clearContents()
+        self.load_users()
+    
+    def add_user_to_table(self):
+        self.tableStaff.blockSignals(True)
+        row = self.tableStaff.rowCount()
+        self.tableStaff.setRowCount(row+1)
+        roles = ['Funcionario', 'Admin']
+        estados = ['Bloqueado', 'Activo']
+        for col, data in enumerate(self.newUser):
+            if col > 4:
+                comBox = QComboBox()
+                comBox.addItems(roles if col==5 else estados)
+                self.tableStaff.setCellWidget(row, col, comBox)
+                comBox.setCurrentIndex(1 if data == 1 else 0)
+                comBox.currentIndexChanged.connect(lambda idx, r=row: self.on_comboBox_change(r))
+            else:
+                self.tableStaff.setItem(row, col, QTableWidgetItem(str(data)))
+                self.tableStaff.item(row, col).setTextAlignment(Qt.AlignCenter)
+        boton = QRadioButton()
+        bw = QWidget()
+        QHBoxLayout(bw).addWidget(boton)
+        bw.layout().setContentsMargins(0,0,0,0)
+        bw.layout().setAlignment(Qt.AlignCenter)
+        self.buttonGroup.addButton(boton, int(self.users[row][0])) # Assign button ID based on user ID
+        self.tableStaff.setCellWidget(row, 7, bw)
+        self.tableStaff.blockSignals(False)
     
     def update_local_list(self):
         for changed_row in self.usersChanged:
@@ -134,13 +215,18 @@ class MainWindow(QMainWindow):
                     self.users[i] = changed_row
                     break
     
-    def clear_users(self, ids):
+    def remove_from_table(self, ids):
         ids = json.loads(ids)
         self.users = [user for user in self.users if user[0] not in ids]
         for row in reversed(range(self.tableStaff.rowCount())):
             item = self.tableStaff.item(row, 0)
             if item and item.text() in str(ids):
+                button = self.tableStaff.cellWidget(row, 7).layout().itemAt(0).widget()
+                button.setChecked(False)
+                self.buttonGroup.removeButton(button)
                 self.tableStaff.removeRow(row)
+        self.revertir_pressed()
+        #self.deselect_pressed()
         QMessageBox.warning(self, "", "Usuarios eliminados")
         
     def on_cell_change(self, row:int, col:int):
@@ -161,12 +247,13 @@ class MainWindow(QMainWindow):
         self.buttonDeselect.setEnabled(anyChecked)
         
     def crear_pressed(self):
-        pass
+        self.stackedWidget.setCurrentIndex(1)
     
     def revertir_pressed(self):
         self.load_users()
         self.buttonRevertir.setEnabled(False)
         self.buttonAplicar.setEnabled(False)
+        self.modedRows = set()
     
     def aplicar_pressed(self):
         self.usersChanged = []
@@ -187,6 +274,7 @@ class MainWindow(QMainWindow):
         self.update_users_list()
         self.buttonRevertir.setEnabled(False)
         self.buttonAplicar.setEnabled(False)
+        self.modedRows = set()
     
     def eliminar_pressed(self):
         checked_ids = [self.buttonGroup.id(b) for b in self.buttonGroup.buttons() if b.isChecked()]
@@ -195,6 +283,15 @@ class MainWindow(QMainWindow):
     def deselect_pressed(self):
         for btn in self.buttonGroup.buttons():
             btn.setChecked(False)
+    
+    def volver_pressed(self):
+        self.stackedWidget.setCurrentIndex(0)
+    
+    def crear2_pressed(self):
+        role = 1 if self.roleRB2.isChecked() else 0
+        status = 1 if self.statusRB1.isChecked() else 0
+        self.newUser = [self.nameInput.text(), self.idInput.text(), self.userNameInput.text(), self.passInput.text(), role, status]
+        self.request_create_user()
 
     def show_login(self):
         self.dialog = LoginDialog(self)
@@ -264,9 +361,17 @@ class MainWindow(QMainWindow):
             else:
                 self.load_users()
                 QMessageBox.warning(self, "Error", "No se pudieron guardar los cambios")
+        elif command.startswith('ACK_NEW_FUNCIONARIO:'):
+            _, check, id_, __ = command.split(':')
+            if check == 'good':
+                self.newUser.insert(0, int(id_))
+                self.users.append(self.newUser)
+                self.redo_table()
+                QMessageBox.warning(self, "", "Usuario creado")
+            else: QMessageBox.warning(self, "Error", f"No se pudo crear el usuario.\n{id_}:{__}")
         elif command.startswith('ACK_DELETE_FUNCIONARIOS:'):
             _, ids = command.split(':')
-            self.clear_users(ids)
+            self.remove_from_table(ids)
         else:
             self.users = json.loads(command)
             self.load_users()
@@ -296,6 +401,15 @@ class MainWindow(QMainWindow):
                 exchange='digiturno_direct',
                 routing_key='server_command',
                 body=f'FUNCIONARIOS_LIST_UPDATE:{json.dumps(self.usersChanged)}',
+                properties=pika.BasicProperties(delivery_mode=2))
+        except: traceback.print_exc()
+    
+    def request_create_user(self):
+        try:
+            self.channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'NEW_FUNCIONARIO:{json.dumps(self.newUser)}',
                 properties=pika.BasicProperties(delivery_mode=2))
         except: traceback.print_exc()
     
