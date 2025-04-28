@@ -209,8 +209,8 @@ class MainWindow(QMainWindow):
                 print(f"Queue before called:\n{self.queue}\n")
                 self.update_grid(servicio, numero, nombre)
             elif message.startswith("ACK_LOGIN_REQUEST:"):
-                _, userID = message.split(':')
-                self.dialog.verify_credentials(userID)
+                _, userID, name = message.split(':')
+                self.dialog.verify_credentials(userID, name)
             elif message.startswith('ACK_NEXT_TURN:'):
                 _, turnInfo, nombre = message.split(':')
                 servicio, numero = turnInfo.split('-')
@@ -281,8 +281,9 @@ class MainWindow(QMainWindow):
         self.setup_rabbitmq()
         if self.dialog.exec_() == QDialog.Accepted:
             self.userID = self.dialog.userID
+            self.nombreF = self.dialog.name
             self.loggedOut = False
-            self.labelTitle.setText(f"Funcionario {self.userID}")
+            self.labelTitle.setText(f"{self.nombreF}")
             #self.setup_rabbitmq()
             self.request_queue()
             self.show()
@@ -458,13 +459,14 @@ class LoginDialog(QDialog):
         else:
             QMessageBox.warning(self, "Error", "Llene ambos campos.")
 
-    def verify_credentials(self, userID):
+    def verify_credentials(self, userID, name):
         if userID == 'NOT_FOUND':
             QMessageBox.warning(self, "Error", "Credenciales inválidas.")
         elif userID == 'NO_ACCESS':
             QMessageBox.warning(self, "Error", "Funcionario bloqueado.")
         else:
-            self.userID = int(userID[0])
+            self.userID = int(userID)
+            self.name = name
             self.accept()
         
     def closeEvent(self, event):

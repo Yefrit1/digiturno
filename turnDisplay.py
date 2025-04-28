@@ -703,19 +703,20 @@ class Digiturno(QMainWindow):
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT id, estado FROM funcionarios
+                SELECT id, estado, nombre FROM funcionarios
                 WHERE usuario = ? AND contrasena = ?
             ''', (username, password))
             result = cursor.fetchone()
             if result:
                 if result[1] == 1:
                     userID = result[0]
-                else: userID = 'NO_ACCESS' # If credentials are valid but user is blocked
-            else: userID = 'NOT_FOUND' # If credentials don't match any user
+                    nombre = result[2]
+                else: userID = nombre = 'NO_ACCESS' # If credentials are valid but user is blocked
+            else: userID = nombre = 'NOT_FOUND' # If credentials don't match any user
         self.channel.basic_publish(
             exchange='ack_exchange',
             routing_key=str(routingKey),
-            body=f'ACK_LOGIN_REQUEST:{userID}',
+            body=f'ACK_LOGIN_REQUEST:{userID}:{nombre}',
             properties=pika.BasicProperties(delivery_mode=2))
         print(f"login request ack sent, user ID: {userID}, routing key: {routingKey}")
     
