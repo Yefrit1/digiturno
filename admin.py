@@ -250,6 +250,7 @@ class MainWindow(QMainWindow):
         self.buttonRevertir.setEnabled(False)
         self.buttonAplicar.setEnabled(False)
         self.modedRows = set()
+        self.deselect_pressed()
     
     def eliminar_pressed(self):
         checked_ids = [self.buttonGroup.id(b) for b in self.buttonGroup.buttons() if b.isChecked()]
