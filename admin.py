@@ -135,13 +135,13 @@ class MainWindow(QMainWindow):
                     break
     
     def clear_users(self, ids):
-        str_ids = set(str(id_) for id_ in ids)
-        self.users = [user for user in self.users if str(user[0]) not in str_ids]
+        ids = json.loads(ids)
+        self.users = [user for user in self.users if user[0] not in ids]
         for row in reversed(range(self.tableStaff.rowCount())):
             item = self.tableStaff.item(row, 0)
-            if item and item.text() in str_ids:
+            if item and item.text() in str(ids):
                 self.tableStaff.removeRow(row)
-        print(f'Deleted users:\n{ids}')
+        QMessageBox.warning(self, "", "Usuarios eliminados")
         
     def on_cell_change(self, row:int, col:int):
         "Called when one of the table's cells is modified, excuding radio buttons"
