@@ -182,31 +182,6 @@ class MainWindow(QMainWindow):
         self.tableStaff.clearContents()
         self.load_users()
     
-    def add_user_to_table(self):
-        self.tableStaff.blockSignals(True)
-        row = self.tableStaff.rowCount()
-        self.tableStaff.setRowCount(row+1)
-        roles = ['Funcionario', 'Admin']
-        estados = ['Bloqueado', 'Activo']
-        for col, data in enumerate(self.newUser):
-            if col > 4:
-                comBox = QComboBox()
-                comBox.addItems(roles if col==5 else estados)
-                self.tableStaff.setCellWidget(row, col, comBox)
-                comBox.setCurrentIndex(1 if data == 1 else 0)
-                comBox.currentIndexChanged.connect(lambda idx, r=row: self.on_comboBox_change(r))
-            else:
-                self.tableStaff.setItem(row, col, QTableWidgetItem(str(data)))
-                self.tableStaff.item(row, col).setTextAlignment(Qt.AlignCenter)
-        boton = QRadioButton()
-        bw = QWidget()
-        QHBoxLayout(bw).addWidget(boton)
-        bw.layout().setContentsMargins(0,0,0,0)
-        bw.layout().setAlignment(Qt.AlignCenter)
-        self.buttonGroup.addButton(boton, int(self.users[row][0])) # Assign button ID based on user ID
-        self.tableStaff.setCellWidget(row, 7, bw)
-        self.tableStaff.blockSignals(False)
-    
     def update_local_list(self):
         for changed_row in self.usersChanged:
             changed_id = str(changed_row[0])
