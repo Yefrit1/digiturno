@@ -79,8 +79,11 @@ class MainWindow(QMainWindow):
         hBox0.addWidget(self.buttonEliminar)
         hBox0.addWidget(self.buttonDeselect)
         #
+        leibel = QLabel("Advertencia: No use dos puntos (:) en ninguno de los parámetros.")
+        #
         layout0.addWidget(scrollArea)
         layout0.addLayout(hBox0)
+        layout0.addWidget(leibel)
 
 ####### Layout 1: VISTA CREAR #######
 
@@ -112,7 +115,7 @@ class MainWindow(QMainWindow):
         statusLayout = QHBoxLayout()
         statusLayout.addWidget(self.statusRB1)
         statusLayout.addWidget(self.statusRB2)
-        
+        #
         hBox1Cont = QWidget()
         hBox1 = QHBoxLayout(hBox1Cont)
         hBox1Cont.setLayout(hBox1)
@@ -124,7 +127,9 @@ class MainWindow(QMainWindow):
         
         hBox1.addWidget(self.buttonVolver)
         hBox1.addWidget(self.buttonCrear2)
-        
+        #
+        leibeel = QLabel("Advertencia: No use dos puntos (:) en ninguno de los parámetros.")
+        #
         layout1.addRow("Nombre:", self.nameInput)
         layout1.addRow("Identificación (U):", self.idInput)
         layout1.addRow("Contraseña:", self.passInput)
@@ -132,6 +137,7 @@ class MainWindow(QMainWindow):
         layout1.addRow("Rol:", roleLayout)
         layout1.addRow("Estado:", statusLayout)
         layout1.addWidget(hBox1Cont)
+        layout1.addWidget(leibeel)
         
 ####### Stack widgets #######
         self.stackedWidget.addWidget(widget0)
