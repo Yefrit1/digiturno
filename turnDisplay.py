@@ -59,12 +59,15 @@ class Digiturno(QMainWindow):
         super().__init__()
         self.setWindowTitle("Digiturno")
         self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
+        self.stations = {}
+        """Keys: estacion (Str): Station name (Caja 1...)
+        Elements: funcionarioID (int): Staff member ID"""
         self.servingStations = {}
         """Keys (int): ID from funcionarios table
         Elements (tuple (Str, int)): Turn information: service type and number"""
         self.orderedServing = []
-        """Tuples (funcionario, turno, nombre)
-        funcionario (int): ID from funcionarios table
+        """Tuples (estacion, turno, nombre)
+        estacion (Str): Station passed by funcionario
         turno (Str): Turn information: service type and number
         nombre (Str): Customer's name"""
         self.orderedQueue = []
@@ -79,6 +82,7 @@ class Digiturno(QMainWindow):
         self.setup_rabbitmq()
         self.command_received.connect(self.handle_command)
         self.load_pending()
+        self.load_stations()
         
         self.showFullScreen()
 
@@ -164,10 +168,10 @@ class Digiturno(QMainWindow):
             print(f"New turn received for {servicio}") # Debug
         elif command.startswith('NEXT_TURN:'):
             # Producer: funcionario.py
-            _, funID, turno, funNom, rk = command.split(':')
+            _, funID, turno, stat, rk = command.split(':')
             servicio, numero = turno.split('-')
             print(f"{funID} calling turn {turno}")  # Debug
-            self.next_turn(int(funID), servicio, int(numero), funNom, rk)
+            self.next_turn(int(funID), servicio, int(numero), stat, rk)
         elif command.startswith('CANCEL_TURN:'):
             # Producer: funcionario.py
             _, funcionario, rk = command.split(':')
@@ -181,10 +185,16 @@ class Digiturno(QMainWindow):
             _, funcionario = command.split(':')
             print(f"{funcionario} requesting queue") # Debug
             self.ack_queue_request(funcionario)
+        elif command.startswith('STATIONS_REQUEST:'):
+            _, rk = command.split(':')
+            self.ack_stations_request(rk)
+        elif command.startswith('RELEASE_STATION:'):
+            _, station = command.split(':')
+            self.release_station(station)
         elif command.startswith('LOGIN_REQUEST:'):
             # Producer: funcionario.py
-            _, username, password, rk = command.split(':')
-            self.ack_login_request(username, password, rk)
+            _, username, password, station, rk = command.split(':')
+            self.ack_login_request(username, password, station, rk)
         elif command.startswith('ADMIN_LOGIN_REQUEST:'):
             # Producer: admin.py
             _, username, password = command.split(':')
@@ -250,11 +260,13 @@ class Digiturno(QMainWindow):
                 print("^Error handling new turn. Read traceback above^")
                 conn.rollback()
     
-    def next_turn(self, funcionario, servicio, numero, funNom, rk):
+    def next_turn(self, funcionario, servicio, numero, estacion, rk):
         """Updates queue, serving and DB when a turn is called. Parameters:
         funcionario (int): id from funcionarios DB
         servicio (Str): Turn's service type
-        numero (int): Turn number"""
+        numero (int): Turn number
+        estacion (Str): Station from where funcionario calls
+        rk (Str): Routing key to send ack"""
         turno = f'{servicio}-{numero}'
         with sqlite3.connect(db_path) as conn:
             try:
@@ -271,11 +283,8 @@ class Digiturno(QMainWindow):
                 ''', (funcionario,))
                 conn.commit()
                 nombre = self.queueNames[turno]
-                print(f'orderedServing before removal: {self.orderedServing}')
-                self.orderedServing = [entry for entry in self.orderedServing if entry[0] != funNom]
-                print(f'orderedServing after removal: {self.orderedServing}')
-                self.orderedServing.append((funNom, turno, nombre))
-                print(f'orderedServing after appending: {self.orderedServing}')
+                self.orderedServing = [entry for entry in self.orderedServing if entry[0] != estacion]
+                self.orderedServing.append((estacion, turno, nombre))
                 self.servingStations[funcionario] = (servicio, numero)
 
                 del self.queueNames[turno]
@@ -284,7 +293,7 @@ class Digiturno(QMainWindow):
                 print(f"Ordered turns: {self.orderedQueue}") # Debug
                 self.update_serving()
                 self.update_waiting()
-                self.show_alert(servicio, numero, funNom, nombre)
+                self.show_alert(servicio, numero, estacion, nombre)
                 self.broadcast_update(f"CALLED:{servicio}-{numero}:{nombre}")
                 self.ack_next_turn(rk, servicio, numero, nombre)
             except:
@@ -349,13 +358,13 @@ class Digiturno(QMainWindow):
             spacer.setFixedWidth(self.screen_width(13))
             self.gridLayout.addWidget(spacer, 0, i)
         col = 0
-        for funcionario, turno, nombre in self.orderedServing[::-1]: # Iterate over the inverted list to display last turn first
+        for estacion, turno, nombre in self.orderedServing[::-1]: # Iterate over the inverted list to display last turn first
             if col > 10: break
             turn = QLabel()
             self.style_label(turn, True)
             turn.setText(f"""
                 <div style='text-align: center; line-height: 0.7;'>
-                    <div style='font-size: {self.screen_width(1.6)}px;'>{funcionario}</div>
+                    <div style='font-size: {self.screen_width(1.6)}px;'>{estacion}</div>
                     <div style='font-size: {self.screen_width(3.6)}px;'>{turno}</div>
                     <div style='font-size: {self.screen_width(1.6)}px; font-weight: normal;'>{nombre}</div>
                 </div>""")
@@ -420,6 +429,15 @@ class Digiturno(QMainWindow):
         print(f"Ordered pending turns: {self.orderedQueue}")
         print(f"Ordered turns with names: {self.queueNames}")
         self.update_waiting()
+        
+    def load_stations(self):
+        """Loads station names from DB"""
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT nombre FROM estaciones')
+            result = cursor.fetchall()
+            self.stations = {nom[0]: None for nom in result}
+        print(f'Stations:\n{self.stations}')
 
     def show_alert(self, servicio, numero, funcionario, nombre):
         """Shows turn alert"""
@@ -553,6 +571,12 @@ class Digiturno(QMainWindow):
                     atendidos INTEGER DEFAULT 0,
                     cancelados INTEGER DEFAULT 0
                 )''')
+            # Tabla de estaciones
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS estaciones (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nombre TEXT NOT NULL
+                )''')
             # Tabla de control de fecha
             self.cursor.execute('''
                 CREATE TABLE IF NOT EXISTS control_fecha (
@@ -567,18 +591,23 @@ class Digiturno(QMainWindow):
         try:
             # Create funcionarios
             self.cursor.execute('''
-                    INSERT OR IGNORE INTO funcionarios (identificacion, nombre, usuario, contrasena)
-                    VALUES ('CC2132', 'funcionario1', 'funcionario1', 'pass'), ('CC3215', 'funcionario2', 'funcionario2', 'pass'),
-                        ('CC4896', 'funcionario3', 'funcionario3', 'pass'), ('CC9525', 'funcionario4', 'funcionario4', 'pass'),
-                        ('CC1962', 'funcionario5', 'funcionario5', 'pass'), ('CC1052', 'funcionario6', 'funcionario6', 'pass'),
-                        ('CC1524', 'funcionario7', 'funcionario7', 'pass'), ('CC8513', 'funcionario8', 'funcionario8', 'pass'),
-                        ('CC4198', 'funcionario9', 'funcionario9', 'pass')
-                ''')
+                INSERT OR IGNORE INTO funcionarios (identificacion, nombre, usuario, contrasena)
+                VALUES ('CC2132', 'funcionario1', 'funcionario1', 'pass'), ('CC3215', 'funcionario2', 'funcionario2', 'pass'),
+                    ('CC4896', 'funcionario3', 'funcionario3', 'pass'), ('CC9525', 'funcionario4', 'funcionario4', 'pass'),
+                    ('CC1962', 'funcionario5', 'funcionario5', 'pass'), ('CC1052', 'funcionario6', 'funcionario6', 'pass'),
+                    ('CC1524', 'funcionario7', 'funcionario7', 'pass'), ('CC8513', 'funcionario8', 'funcionario8', 'pass'),
+                    ('CC4198', 'funcionario9', 'funcionario9', 'pass')
+            ''')
+            self.cursor.execute('''
+                INSERT OR IGNORE INTO estaciones (nombre)
+                VALUES ('Estación 1'), ('Estación 2'), ('Estación 3'), ('Estación 4'), ('Estación 5'),
+                ('Estación 6'), ('Estación 7'), ('Estación 8'), ('Estación 9')
+            ''')
             # Create control de fecha
             self.cursor.execute('''
                 INSERT OR IGNORE INTO control_fecha (id, last_reset)
                 VALUES (1, '2000-01-01')
-                                ''')
+            ''')
             # Check for daily reset
             today = datetime.now().strftime("%Y-%m-%d")
             self.cursor.execute('''
@@ -706,8 +735,21 @@ class Digiturno(QMainWindow):
             properties=pika.BasicProperties(delivery_mode=2))
         print("Ack sent with queue")
         print(queue)
+    
+    def ack_stations_request(self, rk):
+        stations = [name for name, user in self.stations.items() if user is None]
+        try:
+            self.channel.basic_publish(
+            exchange='ack_exchange',
+            routing_key=str(rk),
+            body=f'ACK_STATIONS_REQUEST:{json.dumps(stations)}',
+            properties=pika.BasicProperties(delivery_mode=2))
+        except: traceback.print_exc()
+    
+    def release_station(self, station):
+        self.stations[station] = None
 
-    def ack_login_request(self, username, password, routingKey):
+    def ack_login_request(self, username, password, station, routingKey):
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -717,14 +759,17 @@ class Digiturno(QMainWindow):
             result = cursor.fetchone()
             if result:
                 if result[1] == 1:
-                    userID = result[0]
-                    nombre = result[2]
-                else: userID = nombre = 'NO_ACCESS' # If credentials are valid but user is blocked
-            else: userID = nombre = 'NOT_FOUND' # If credentials don't match any user
+                    if self.stations.get(station) is None:
+                        userID = result[0]
+                        nombre = result[2]
+                        self.stations[station] = userID
+                    else: userID = nombre = station = 'STATION_BUSY'
+                else: userID = nombre = station = 'NO_ACCESS' # If credentials are valid but user is blocked
+            else: userID = nombre = station = 'NOT_FOUND' # If credentials don't match any user
         self.channel.basic_publish(
             exchange='ack_exchange',
             routing_key=str(routingKey),
-            body=f'ACK_LOGIN_REQUEST:{userID}:{nombre}',
+            body=f'ACK_LOGIN_REQUEST:{userID}:{nombre}:{station}',
             properties=pika.BasicProperties(delivery_mode=2))
         print(f"login request ack sent, user ID: {userID}, routing key: {routingKey}")
     

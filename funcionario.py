@@ -209,9 +209,12 @@ class MainWindow(QMainWindow):
                 servicio, numero = turnInfo.split('-')
                 print(f"Queue before called:\n{self.queue}\n")
                 self.update_grid(servicio, numero, nombre)
+            elif message.startswith('ACK_STATIONS_REQUEST:'):
+                stations = json.loads(message[len('ACK_STATIONS_REQUEST:'):])
+                self.dialog.stationMenu.addItems(stations)
             elif message.startswith("ACK_LOGIN_REQUEST:"):
-                _, userID, name = message.split(':')
-                self.dialog.verify_credentials(userID, name)
+                _, userID, name, station = message.split(':')
+                self.dialog.verify_credentials(userID, name, station)
             elif message.startswith('ACK_NEXT_TURN:'):
                 _, turnInfo, nombre = message.split(':')
                 servicio, numero = turnInfo.split('-')
@@ -280,9 +283,11 @@ class MainWindow(QMainWindow):
     def show_login(self):
         self.dialog = LoginDialog(self)
         self.setup_rabbitmq()
+        self.get_stations()
         if self.dialog.exec_() == QDialog.Accepted:
             self.userID = self.dialog.userID
             self.nombreF = self.dialog.name
+            self.station = self.dialog.station
             self.loggedOut = False
             self.labelTitle.setText(f"{self.nombreF}")
             #self.setup_rabbitmq()
@@ -296,6 +301,7 @@ class MainWindow(QMainWindow):
         self.userID = None
         self.labelTurno.setText("-")
         self.loggedOut = True
+        self.release_station()
         self.close()
         self.show_login()
 
@@ -363,13 +369,22 @@ class MainWindow(QMainWindow):
             self.updateUIsignal.emit(message)
         except Exception as e:
             print(f"Error processing message: {e}")
-
-    def request_verification(self, username, password):
+            
+    def get_stations(self):
         try:
             self.channel.basic_publish(
                 exchange='digiturno_direct',
                 routing_key='server_command',
-                body=f'LOGIN_REQUEST:{username}:{password}:{self.id}',
+                body=f'STATIONS_REQUEST:{self.id}',
+                properties=pika.BasicProperties(delivery_mode=2))
+        except: traceback.print_exc()
+
+    def request_verification(self, username, password, station):
+        try:
+            self.channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'LOGIN_REQUEST:{username}:{password}:{station}:{self.id}',
                 properties=pika.BasicProperties(delivery_mode=2))
         except:
             traceback.print_exc()
@@ -413,6 +428,15 @@ class MainWindow(QMainWindow):
         except:
             traceback.print_exc()
             self.setup_rabbitmq()
+    
+    def release_station(self):
+        try:
+            self.channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'RELEASE_STATION:{self.station}',
+                properties=pika.BasicProperties(delivery_mode=2))
+        except: pass
 
     def cleanup_connections(self):
         if self.channel and self.channel.is_open:
@@ -427,6 +451,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         if not self.loggedOut:
+            self.release_station()
             self.cleanup_connections()
             self.rabbitmqThread.join(timeout=1.0)
         super().closeEvent(event)
@@ -446,32 +471,39 @@ class LoginDialog(QDialog):
         self.password = QLineEdit()
         self.password.setPlaceholderText("Contraseña")
         self.password.setEchoMode(QLineEdit.Password)
+        self.stationMenu = QComboBox()
         
         self.loginButton = QPushButton("Iniciar sesión")
         self.loginButton.clicked.connect(self.request_verification_dialog)
         
         self.layout.addWidget(self.username)
         self.layout.addWidget(self.password)
+        self.layout.addWidget(self.stationMenu)
         self.layout.addWidget(self.loginButton)
         self.setLayout(self.layout)
 
     def request_verification_dialog(self):
         if self.username.text() != "" and self.password.text() != "":
-            client.request_verification(self.username.text(), self.password.text())
+            client.request_verification(self.username.text(), self.password.text(), self.stationMenu.currentText())
         else:
             QMessageBox.warning(self, "Error", "Llene ambos campos.")
 
-    def verify_credentials(self, userID, name):
+    def verify_credentials(self, userID, name, station):
         if userID == 'NOT_FOUND':
             QMessageBox.warning(self, "Error", "Credenciales inválidas.")
         elif userID == 'NO_ACCESS':
             QMessageBox.warning(self, "Error", "Funcionario bloqueado.")
+        elif userID == 'STATION_BUSY':
+            QMessageBox.warning(self, "Error", "Estación en uso.")
         else:
             self.userID = int(userID)
             self.name = name
+            self.station = station
             self.accept()
         
     def closeEvent(self, event):
+        try: client.release_station()
+        except: pass
         if client and hasattr(client, 'channel'):
             try:
                 client.channel.queue_delete(queue=f'ack_queue_{client.id}')
