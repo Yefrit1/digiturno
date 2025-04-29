@@ -293,6 +293,7 @@ class MainWindow(QMainWindow):
     def log_out(self):
         time.sleep(0.1)
         self.userID = None
+        self.labelTurno.setText("-")
         self.loggedOut = True
         self.close()
         self.show_login()
@@ -386,20 +387,19 @@ class MainWindow(QMainWindow):
             self.channel.basic_publish(
                 exchange='digiturno_direct',
                 routing_key='server_command',
-                body=f'NEXT_TURN:{self.userID}:{servicio}-{numero}:{self.id}')
+                body=f'NEXT_TURN:{self.userID}:{servicio}-{numero}:{self.nombreF}:{self.id}')
         except:
             traceback.print_exc()
             self.setup_rabbitmq()
 
     def complete_current_turn(self):
-        if self.labelTurno.text() != "-":
-            try:
-                self.channel.basic_publish(
-                    exchange='digiturno_direct',
-                    routing_key='server_command',
-                    body=f'COMPLETE_TURN:{self.userID}:{self.id}')
-            except:
-                traceback.print_exc()
+        try:
+            self.channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'COMPLETE_TURN:{self.userID}:{self.id}')
+        except:
+            traceback.print_exc()
 
     def cancel_current_turn(self):
         if self.labelTurno.text() != "-":
@@ -471,8 +471,10 @@ class LoginDialog(QDialog):
         
     def closeEvent(self, event):
         if client and hasattr(client, 'channel'):
-            client.channel.queue_delete(queue=f'ack_queue_{client.id}')
-            client.channel.queue_delete(queue=f'broadcast_queue_{client.id}')
+            try:
+                client.channel.queue_delete(queue=f'ack_queue_{client.id}')
+                client.channel.queue_delete(queue=f'broadcast_queue_{client.id}')
+            except: pass
         super().closeEvent(event)
 
 if __name__ == "__main__":

@@ -23,17 +23,6 @@ class MainWindow(QMainWindow):
         self.cedula = ""
         self.asociado = False
         self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
-        '''
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT servicio, numero
-                FROM turnos
-                WHERE estado = 'pendiente' AND DATE(creado) = DATE('now')
-                ORDER BY creado
-            """)
-        for servicio, numero in cursor.fetchall():
-            self.queue[servicio].append(numero)'''
 
 ####### Layout 0: CÉDULA #######
         self.ced = QWidget()
@@ -269,7 +258,8 @@ class MainWindow(QMainWindow):
         turnHbox2 = QHBoxLayout()
 
         self.turno = QPushButton()
-        self.style_button(self.turno, 10, 15, 3)
+        self.style_button(self.turno, 12, 15, 3)
+        self.turno.setFixedSize(self.screen_width(40), self.screen_height(30))
 
         self.add_spacer(turnHbox2)
         turnHbox2.addWidget(self.turno)
@@ -569,10 +559,16 @@ class MainWindow(QMainWindow):
             _, serv = command.split(':')
             print(f"New turn {serv}-{self.queue[serv][-1]} acknowledged") # Debug
         else:
-            self.queue = json.loads(command)
-            for key in self.queue:
-                if not self.queue[key]:  # Checks if list is empty
-                    self.queue[key].append(0)
+            listQueue = json.loads(command)
+            print(f'Got queue:\n{self.queue}')
+            self.queue = {}
+            for serv, num in listQueue:
+                if serv not in self.queue:
+                    self.queue[serv] = []
+                self.queue[serv].append(num)
+            for serv in self.queue:
+                if not self.queue[serv]:  # Checks if list is empty
+                    self.queue[serv].append(0)
             print(f"Got queue:\n{self.queue}")
 
     def send_new_turn(self, servicio):
@@ -590,7 +586,7 @@ class MainWindow(QMainWindow):
             self.channel.basic_publish(
                 exchange='digiturno_direct',
                 routing_key='server_command',
-                body='SIMPLE_QUEUE_REQUEST',
+                body='LAST_TURN_PER_SERVICE',
                 properties=pika.BasicProperties(delivery_mode=2))
         except:
             traceback.print_exc()
