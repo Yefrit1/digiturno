@@ -405,7 +405,7 @@ class MainWindow(QMainWindow):
             self.channel.basic_publish(
                 exchange='digiturno_direct',
                 routing_key='server_command',
-                body=f'NEXT_TURN:{self.userID}:{servicio}-{numero}:{self.nombreF}:{self.id}')
+                body=f'NEXT_TURN:{self.userID}:{servicio}-{numero}:{self.station}:{self.id}')
         except:
             traceback.print_exc()
             self.setup_rabbitmq()

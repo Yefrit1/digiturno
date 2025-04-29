@@ -170,7 +170,7 @@ class Digiturno(QMainWindow):
             # Producer: funcionario.py
             _, funID, turno, stat, rk = command.split(':')
             servicio, numero = turno.split('-')
-            print(f"{funID} calling turn {turno}")  # Debug
+            print(f"{funID} calling turn {turno} on {stat}")  # Debug
             self.next_turn(int(funID), servicio, int(numero), stat, rk)
         elif command.startswith('CANCEL_TURN:'):
             # Producer: funcionario.py
