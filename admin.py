@@ -24,7 +24,7 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         self.setWindowTitle("Control Digiturno")
         self.setGeometry(int(self.screenGeometry.width()/2 - 569),
-                         int(self.screenGeometry.height()/2 - 300), 1138, 600)
+                         int(self.screenGeometry.height()/2 - 350), 1138, 700)
         
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
