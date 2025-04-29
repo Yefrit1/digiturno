@@ -1,10 +1,12 @@
-import sys, traceback, sqlite3, threading, pika, json
+import sys, traceback, sqlite3, threading, pika, json, os
+from dotenv import load_dotenv
 from datetime import datetime
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
-
+load_dotenv()
 db_path = 'digiturno.db'
+
 class TurnAlert(QLabel):
     def __init__(self, parent=None):
         self.screenGeometry = QApplication.primaryScreen().geometry()
@@ -433,9 +435,7 @@ class Digiturno(QMainWindow):
 
     def style_label(self, label, serving=False):
         """Set stylesheet, alignment and shadow effect for a label. Parameters:
-
         label (QLabel): Label to format
-
         serving (bool, optional): True for 'serving', False for 'waiting'. Defaults to False"""
         label.setAutoFillBackground(True)  # Crucial for background rendering, whatever that means
         styleSheet = f"""
@@ -467,9 +467,7 @@ class Digiturno(QMainWindow):
         label.setGraphicsEffect(labelShadow)
     
     def style_header(self, label):
-        """Set stylesheet and alignment for label. Parameters:
-        
-        label (Qlabel): Label to format"""
+        """Set stylesheet and alignment for label"""
         label.setStyleSheet(f"""
             QLabel {{
                 background-color: #123524;
@@ -615,8 +613,9 @@ class Digiturno(QMainWindow):
             self.conn.rollback()
         
     def setup_rabbitmq(self):
+        credentials = pika.PlainCredentials(os.getenv("RABBITMQ_USER"), os.getenv("RABBITMQ_PASS"))
         self.connection = pika.BlockingConnection(
-            pika.ConnectionParameters('localhost'))
+            pika.ConnectionParameters(host='localhost', credentials=credentials))
         self.channel = self.connection.channel()
         
         # Direct exchange

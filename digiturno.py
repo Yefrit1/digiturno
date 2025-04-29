@@ -1,7 +1,9 @@
-import sys, traceback, pika, threading, json
+import sys, traceback, pika, threading, json, os
+from dotenv import load_dotenv
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
+load_dotenv()
 
 class MainWindow(QMainWindow):
     commandSignal = pyqtSignal(str)
@@ -505,7 +507,8 @@ class MainWindow(QMainWindow):
         return int(self.screenGeometry.height()*num/100)
     
     def setup_rabbitmq(self):
-        parameters = pika.ConnectionParameters(host='localhost')
+        credentials = pika.PlainCredentials(os.getenv("RABBITMQ_USER"), os.getenv("RABBITMQ_PASS"))
+        parameters = pika.ConnectionParameters(host='localhost', credentials=credentials)
         self.connection = pika.BlockingConnection(parameters)
         self.channel = self.connection.channel()
 

@@ -1,9 +1,10 @@
-import sys, socket, sqlite3, time, traceback, io, pika, time, json, threading
+import sys, socket, sqlite3, time, traceback, io, pika, time, json, threading, os
+from dotenv import load_dotenv
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
-
 db_path = "digiturno.db"
+load_dotenv()
 
 class MainWindow(QMainWindow):
     commandSignal = pyqtSignal(str)
@@ -295,7 +296,8 @@ class MainWindow(QMainWindow):
         widget.setPalette(palette)
     
     def setup_rabbitmq(self):
-        parameters = pika.ConnectionParameters(host='localhost')
+        credentials = pika.PlainCredentials(os.getenv("RABBITMQ_USER"), os.getenv("RABBITMQ_PASS"))
+        parameters = pika.ConnectionParameters(host='localhost', credentials=credentials)
         self.connection = pika.BlockingConnection(parameters)
         self.channel = self.connection.channel()
 

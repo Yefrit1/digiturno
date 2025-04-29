@@ -1,8 +1,9 @@
-import sys, sqlite3, traceback, pika, time, json, uuid, threading
-from pika.adapters.asyncio_connection import AsyncioConnection
+import sys, traceback, pika, time, json, uuid, threading, os
+from dotenv import load_dotenv
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
+load_dotenv()
 
 class MainWindow(QMainWindow):
     updateUIsignal = pyqtSignal(str)
@@ -306,8 +307,10 @@ class MainWindow(QMainWindow):
 
     def setup_rabbitmq(self):
         try:
+            credentials = pika.PlainCredentials(os.getenv("RABBITMQ_USER"), os.getenv("RABBITMQ_PASS"))
             parameters = pika.ConnectionParameters(
-                host='localhost')
+                host='localhost',
+                credentials=credentials)
                 #heartbeat=30,
                 #blocked_connection_timeout=5,
                 #connection_attempts=3,
@@ -402,15 +405,14 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
 
     def cancel_current_turn(self):
-        if self.labelTurno.text() != "-":
-            try:
-                self.channel.basic_publish(
-                    exchange='digiturno_direct',
-                    routing_key='server_command',
-                    body=f'CANCEL_TURN:{self.userID}:{self.id}')
-            except:
-                traceback.print_exc()
-                self.setup_rabbitmq()
+        try:
+            self.channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=f'CANCEL_TURN:{self.userID}:{self.id}')
+        except:
+            traceback.print_exc()
+            self.setup_rabbitmq()
 
     def cleanup_connections(self):
         if self.channel and self.channel.is_open:
