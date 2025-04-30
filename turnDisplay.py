@@ -4,8 +4,8 @@ from datetime import datetime
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
-load_dotenv()
 db_path = 'digiturno.db'
+load_dotenv()
 
 class TurnAlert(QLabel):
     def __init__(self, parent=None):
@@ -131,13 +131,13 @@ class Digiturno(QMainWindow):
         self.gridLayout = QGridLayout()
         self.gridLayout.setAlignment(Qt.AlignTop | Qt.AlignCenter)
         self.gridLayout.setHorizontalSpacing(self.screen_width(4))
-        self.gridLayout.setVerticalSpacing(self.screen_height(20))
-        self.gridLayout.setContentsMargins(self.screen_width(5), self.screen_height(5),
-                                           self.screen_width(5), 0)
+        self.gridLayout.setVerticalSpacing(self.screen_height(15))
+        self.gridLayout.setContentsMargins(self.screen_width(3), self.screen_height(5),
+                                           self.screen_width(3), 0)
         # HBox for waiting
         self.waitLayout = QHBoxLayout()
-        self.waitLayout.setContentsMargins(self.screen_width(5), 0,
-                                           self.screen_width(5), self.screen_height(4))
+        self.waitLayout.setContentsMargins(self.screen_width(3), 0,
+                                           self.screen_width(3), self.screen_height(4))
         self.waitLayout.setSpacing(self.screen_width(1))
         self.waitLayout.setAlignment(Qt.AlignBottom | Qt.AlignLeft)
         self.waitHeader = QHBoxLayout()
@@ -248,7 +248,7 @@ class Digiturno(QMainWindow):
                 cursor.execute('''
                     INSERT INTO turnos (cliente_id, servicio, numero, estado, creado)
                     VALUES ((SELECT id FROM clientes WHERE identificacion = ?),
-                        ?, ?, 'pendiente', datetime('now'))''', (cedula, servicio, numero))
+                        ?, ?, 'pendiente', datetime('now', 'localtime'))''', (cedula, servicio, numero))
                 conn.commit()
                 self.queue[servicio].append(numero)
                 self.orderedQueue.append((servicio, numero))
@@ -275,9 +275,9 @@ class Digiturno(QMainWindow):
             try:
                 conn.cursor().execute('''
                     UPDATE turnos
-                    SET estado = 'atendido', llamado = datetime('now')
+                    SET estado = 'atendido', llamado = datetime('now', 'localtime'), funcionario_id = ?
                     WHERE servicio = ? AND numero = ? AND DATE(creado) = DATE('now')
-                ''', (servicio, numero))
+                ''', (funcionario, servicio, numero))
                 conn.cursor().execute('''
                     UPDATE funcionarios
                     SET atendidos_hoy = atendidos_hoy + 1,
@@ -647,7 +647,7 @@ class Digiturno(QMainWindow):
     def setup_rabbitmq(self):
         credentials = pika.PlainCredentials(os.getenv("RABBITMQ_USER"), os.getenv("RABBITMQ_PASS"))
         self.connection = pika.BlockingConnection(
-            pika.ConnectionParameters(host='localhost', credentials=credentials))
+            pika.ConnectionParameters(host=os.getenv("RABBITMQ_HOST"), credentials=credentials))
         self.channel = self.connection.channel()
         
         # Direct exchange
