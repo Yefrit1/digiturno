@@ -58,6 +58,7 @@ class Digiturno(QMainWindow):
         self.screenGeometry = QApplication.primaryScreen().geometry()
         super().__init__()
         self.setWindowTitle("Digiturno")
+        self.commandLock = threading.Lock()
         self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
         self.stations = {}
         """Keys: estacion (Str): Station name (Caja 1...)
@@ -160,70 +161,72 @@ class Digiturno(QMainWindow):
         verticalLayout.addLayout(self.waitLayout)
 
     def handle_command(self, command):
-        print(f"Command received: {command}") # Debug
-        if command.startswith('NEW_TURN:'):
-            # Producer: digiturno.py
-            _, cliente_id, servicio = command.split(':')
-            self.new_turn(cliente_id, servicio)
-            print(f"New turn received for {servicio}") # Debug
-        elif command.startswith('NEXT_TURN:'):
-            # Producer: funcionario.py
-            _, funID, turno, stat, rk = command.split(':')
-            servicio, numero = turno.split('-')
-            print(f"{funID} calling turn {turno} on {stat}")  # Debug
-            self.next_turn(int(funID), servicio, int(numero), stat, rk)
-        elif command.startswith('CANCEL_TURN:'):
-            # Producer: funcionario.py
-            _, funcionario, rk = command.split(':')
-            print(f"{funcionario} canceling current turn") # Debug
-            self.cancel_turn(int(funcionario), rk)
-        elif command.startswith('COMPLETE_TURN:'):
-            _, funcionario, rk = command.split(':')
-            self.complete_turn(int(funcionario), rk)
-        elif command.startswith('QUEUE_REQUEST:'):
-            # Producer: funcionario.py
-            _, funcionario = command.split(':')
-            print(f"{funcionario} requesting queue") # Debug
-            self.ack_queue_request(funcionario)
-        elif command.startswith('STATIONS_REQUEST:'):
-            _, rk = command.split(':')
-            self.ack_stations_request(rk)
-        elif command.startswith('RELEASE_STATION:'):
-            _, station = command.split(':')
-            self.release_station(station)
-        elif command.startswith('LOGIN_REQUEST:'):
-            # Producer: funcionario.py
-            _, username, password, station, rk = command.split(':')
-            self.ack_login_request(username, password, station, rk)
-        elif command.startswith('ADMIN_LOGIN_REQUEST:'):
-            # Producer: admin.py
-            _, username, password = command.split(':')
-            self.ack_admin_login_request(username, password)
-        elif command.startswith('CUSTOMER_ID_CHECK:'):
-            # Producer: digiturno.py
-            _, cedula = command.split(':')
-            self.ack_customer_ID_check(cedula)
-        elif command.startswith('NEW_CUSTOMER:'):
-            # Producer: digiturno.py
-            _, cedula, nombre = command.split(':')
-            self.ack_new_customer(cedula, nombre)
-        elif command.startswith('LAST_TURN_PER_SERVICE'):
-            # Producer: digiturno.py
-            self.ack_last_turn_request()
-        elif command.startswith('FUNCIONARIOS_LIST_REQUEST'):
-            # Producer: admin.py
-            self.ack_funcionarios_list_request()
-        elif command.startswith('FUNCIONARIOS_LIST_UPDATE:'):
-            # Producer: admin.py
-            self.funChanged = json.loads(command[len('FUNCIONARIOS_LIST_UPDATE:'):])
-            self.ack_funcionarios_list_update()
-        elif command.startswith('NEW_FUNCIONARIO:'):
-            # Producer: admin.py
-            self.newFun = json.loads(command[len('NEW_FUNCIONARIO:'):])
-            self.ack_new_funcionario()
-        elif command.startswith('DELETE_FUNCIONARIOS:'):
-            ids = json.loads(command[len('DELETE_FUNCIONARIOS:'):])
-            self.ack_delete_funcionarios(ids)
+        with self.commandLock:
+            print(f"Command received: {command}") # Debug
+            if command.startswith('NEW_TURN:'):
+                # Producer: digiturno.py
+                _, cliente_id, servicio = command.split(':')
+                self.new_turn(cliente_id, servicio)
+                print(f"New turn received for {servicio}") # Debug
+            elif command.startswith('NEXT_TURN:'):
+                # Producer: funcionario.py
+                _, funID, turno, stat, rk = command.split(':')
+                servicio, numero = turno.split('-')
+                print(f"{funID} calling turn {turno} on {stat}")  # Debug
+                self.next_turn(int(funID), servicio, int(numero), stat, rk)
+            elif command.startswith('CANCEL_TURN:'):
+                # Producer: funcionario.py
+                _, funcionario, rk = command.split(':')
+                print(f"{funcionario} canceling current turn") # Debug
+                self.cancel_turn(int(funcionario), rk)
+            elif command.startswith('COMPLETE_TURN:'):
+                # Producer: funcionario.py
+                _, funcionario, rk = command.split(':')
+                self.complete_turn(int(funcionario), rk)
+            elif command.startswith('QUEUE_REQUEST:'):
+                # Producer: funcionario.py
+                _, funcionario = command.split(':')
+                print(f"{funcionario} requesting queue") # Debug
+                self.ack_queue_request(funcionario)
+            elif command.startswith('STATIONS_REQUEST:'):
+                _, rk = command.split(':')
+                self.ack_stations_request(rk)
+            elif command.startswith('RELEASE_STATION:'):
+                _, station = command.split(':')
+                self.release_station(station)
+            elif command.startswith('LOGIN_REQUEST:'):
+                # Producer: funcionario.py
+                _, username, password, station, rk = command.split(':')
+                self.ack_login_request(username, password, station, rk)
+            elif command.startswith('ADMIN_LOGIN_REQUEST:'):
+                # Producer: admin.py
+                _, username, password = command.split(':')
+                self.ack_admin_login_request(username, password)
+            elif command.startswith('CUSTOMER_ID_CHECK:'):
+                # Producer: digiturno.py
+                _, cedula = command.split(':')
+                self.ack_customer_ID_check(cedula)
+            elif command.startswith('NEW_CUSTOMER:'):
+                # Producer: digiturno.py
+                _, cedula, nombre = command.split(':')
+                self.ack_new_customer(cedula, nombre)
+            elif command.startswith('LAST_TURN_PER_SERVICE'):
+                # Producer: digiturno.py
+                self.ack_last_turn_request()
+            elif command.startswith('FUNCIONARIOS_LIST_REQUEST'):
+                # Producer: admin.py
+                self.ack_funcionarios_list_request()
+            elif command.startswith('FUNCIONARIOS_LIST_UPDATE:'):
+                # Producer: admin.py
+                self.funChanged = json.loads(command[len('FUNCIONARIOS_LIST_UPDATE:'):])
+                self.ack_funcionarios_list_update()
+            elif command.startswith('NEW_FUNCIONARIO:'):
+                # Producer: admin.py
+                self.newFun = json.loads(command[len('NEW_FUNCIONARIO:'):])
+                self.ack_new_funcionario()
+            elif command.startswith('DELETE_FUNCIONARIOS:'):
+                ids = json.loads(command[len('DELETE_FUNCIONARIOS:'):])
+                self.ack_delete_funcionarios(ids)
 
     def new_turn(self, cedula, servicio):
         """Handles new turns"""
@@ -850,9 +853,10 @@ class Digiturno(QMainWindow):
             traceback.print_exc()
     
     def ack_last_turn_request(self):
+        fechaHoy = datetime.now().strftime("%Y-%m-%d")
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT servicio, MAX(numero) FROM turnos GROUP BY servicio')
+            cursor.execute('SELECT servicio, MAX(numero) FROM turnos WHERE DATE(creado) = ? GROUP BY servicio', (fechaHoy,))
             result = cursor.fetchall()
         try:
             self.channel.basic_publish(
