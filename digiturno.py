@@ -563,8 +563,7 @@ class MainWindow(QMainWindow):
             print(f"New turn {serv}-{self.queue[serv][-1]} acknowledged") # Debug
         else:
             listQueue = json.loads(command)
-            print(f'Got queue:\n{self.queue}')
-            self.queue = {}
+            self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
             for serv, num in listQueue:
                 if serv not in self.queue:
                     self.queue[serv] = []
