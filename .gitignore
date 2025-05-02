@@ -1,5 +1,6 @@
 *.db
 __pycache__/
+reports/
 *.pyc
 client.py
 .env

@@ -584,7 +584,8 @@ class Digiturno(QMainWindow):
             self.cursor.execute('''
                 CREATE TABLE IF NOT EXISTS control_fecha (
                     id INTEGER PRIMARY KEY CHECK (id = 1),
-                    last_reset DATE NOT NULL
+                    last_reset DATE NOT NULL,
+                    last_report DATE NOT NULL
                 )
                                 ''')
             self.conn.commit()
@@ -608,8 +609,8 @@ class Digiturno(QMainWindow):
             ''')
             # Create control de fecha
             self.cursor.execute('''
-                INSERT OR IGNORE INTO control_fecha (id, last_reset)
-                VALUES (1, '2000-01-01')
+                INSERT OR IGNORE INTO control_fecha (id, last_reset, last_report)
+                VALUES (1, '2024-01-01', '2024-01-01')
             ''')
             # Check for daily reset
             today = datetime.now().strftime("%Y-%m-%d")
@@ -647,7 +648,7 @@ class Digiturno(QMainWindow):
     def setup_rabbitmq(self):
         credentials = pika.PlainCredentials(os.getenv("RABBITMQ_USER"), os.getenv("RABBITMQ_PASS"))
         self.connection = pika.BlockingConnection(
-            pika.ConnectionParameters(host=os.getenv("RABBITMQ_HOST"), credentials=credentials))
+            pika.ConnectionParameters(host='localhost', credentials=credentials))
         self.channel = self.connection.channel()
         
         # Direct exchange

@@ -508,7 +508,8 @@ class MainWindow(QMainWindow):
     
     def setup_rabbitmq(self):
         credentials = pika.PlainCredentials(os.getenv("RABBITMQ_USER"), os.getenv("RABBITMQ_PASS"))
-        parameters = pika.ConnectionParameters(host='localhost', credentials=credentials)
+        parameters = pika.ConnectionParameters(host=os.getenv('LOCAL_IP'), port=int(os.getenv('PORT')),
+                                               virtual_host='/', credentials=credentials)
         self.connection = pika.BlockingConnection(parameters)
         self.channel = self.connection.channel()
 

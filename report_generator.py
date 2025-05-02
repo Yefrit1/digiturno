@@ -1,69 +1,63 @@
-import sqlite3
-import csv
-import os
+import sqlite3, csv, os
 from datetime import datetime, timedelta
+db_path = 'digiturno.db'
 
 class ReportGenerator:
-    def __init__(self, db_path='digiturno.db'):
-        self.db_path = db_path
+    def __init__(self,):
         os.makedirs("reports", exist_ok=True)
-
-    def generate_report(self, period='day', date=None):
-        with sqlite3.connect(self.db_path) as conn:
+    
+    def generate_report(self, period, startDate, endDate=None):
+        startDateTime = datetime.strptime(startDate, '%Y-%m-%d')
+        match period:
+            case 'day':
+                endDateTime = datetime.strptime(startDate, '%Y-%m-%d') + timedelta(days=1)
+                filename = f"report_{startDate}.csv"
+            case 'week':
+                startDateTime -= timedelta(days=startDateTime.weekday())
+                endDateTime = startDateTime + timedelta(days=7)
+                weekNum = startDateTime.isocalendar().week
+                filename = f"report_{startDateTime.year}_week_{weekNum}.csv"
+            case 'month':
+                startDateTime = startDateTime.replace(day=1)
+                nextMonth = startDateTime.replace(day=28) + timedelta(days=4)
+                endDateTime = nextMonth.replace(day=1)
+                filename = f"report_{startDateTime.year}_month_{startDateTime.month}.csv"
+            case 'year':
+                startDateTime = startDateTime.replace(month=1, day=1)
+                endDateTime = datetime(startDateTime.year + 1, 1, 1)
+                filename = f"report_year_{startDateTime.year}.csv"
+            case 'custom' if endDate:
+                endDateTime = datetime.strptime(endDate, '%Y-%m-%d') + timedelta(days=1)
+                filename = f"report_from_{startDate}_to_{endDate}.csv"
+            case _:
+                print('Wrong args')
+                return None
+            
+        startStr = startDateTime.strftime('%Y-%m-%d %H:%M:%S')
+        endStr = endDateTime.strftime('%Y-%m-%d %H:%M:%S')
+        query = '''
+            SELECT
+                t.servicio || '-' || t.numero AS turno,
+                c.nombre AS cliente,
+                t.creado,
+                t.llamado,
+                f.nombre AS funcionario
+            FROM turnos t
+            JOIN clientes c ON t.cliente_id = c.id
+            LEFT JOIN funcionarios f ON t.funcionario_id = f.id
+            WHERE t.creado BETWEEN ? AND ?
+            ORDER BY t.creado ASC'''
+        with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
-            if date:
-                base_date = datetime.strptime(date, "%Y-%m-%d")
-            else:
-                base_date = datetime.today()
-
-            start_date, end_date = self._get_date_range(period, base_date)
-
-            query = '''
-                SELECT
-                    t.servicio || '-' || t.numero AS turno,
-                    c.nombre AS cliente,
-                    t.creado,
-                    t.llamado,
-                    f.nombre AS funcionario
-                FROM turnos t
-                JOIN clientes c ON t.cliente_id = c.id
-                LEFT JOIN funcionarios f ON t.funcionario_id = f.id
-                WHERE t.creado BETWEEN ? AND ?
-                ORDER BY t.creado ASC
-            '''
-            cursor.execute(query, (start_date, end_date))
+            cursor.execute(query, (startStr, endStr))
             rows = cursor.fetchall()
-
         if not rows:
-            return None  # No report generated
-
-        filename = f"report_{period}_{base_date.strftime('%Y-%m-%d')}.csv"
+            return None
+        
+        os.makedirs("reports", exist_ok=True)
         filepath = os.path.join("reports", filename)
-
         with open(filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(["Turno", "Cliente", "Creado", "Llamado", "Funcionario"])
             writer.writerows(rows)
-
         return filepath
-
-    def _get_date_range(self, period, base_date):
-        if period == 'day':
-            start = base_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            end = start + timedelta(days=1)
-        elif period == 'week':
-            start = base_date - timedelta(days=base_date.weekday())
-            end = start + timedelta(days=7)
-        elif period == 'month':
-            start = base_date.replace(day=1)
-            next_month = start.replace(day=28) + timedelta(days=4)
-            end = next_month.replace(day=1)
-        elif period == 'year':
-            start = base_date.replace(month=1, day=1)
-            end = base_date.replace(month=12, day=31) + timedelta(days=1)
-        else:  # all
-            start = '0001-01-01 00:00:00'
-            end = '9999-12-31 23:59:59'
-            return start, end
-
-        return start.strftime('%Y-%m-%d %H:%M:%S'), end.strftime('%Y-%m-%d %H:%M:%S')

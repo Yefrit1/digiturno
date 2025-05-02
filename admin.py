@@ -199,7 +199,7 @@ class MainWindow(QMainWindow):
     
     def remove_from_table(self, ids):
         ids = json.loads(ids)
-        self.users = [user for user in self.users if user[0] not in ids]
+        self.users = [user for user in self.users if int(user[0]) not in ids]
         for row in reversed(range(self.tableStaff.rowCount())):
             item = self.tableStaff.item(row, 0)
             if item and item.text() in str(ids):
@@ -297,7 +297,7 @@ class MainWindow(QMainWindow):
     
     def setup_rabbitmq(self):
         credentials = pika.PlainCredentials(os.getenv("RABBITMQ_USER"), os.getenv("RABBITMQ_PASS"))
-        parameters = pika.ConnectionParameters(host='localhost', credentials=credentials)
+        parameters = pika.ConnectionParameters(host=os.getenv('LOCAL_IP'), port=int(os.getenv('PORT')), credentials=credentials)
         self.connection = pika.BlockingConnection(parameters)
         self.channel = self.connection.channel()
 

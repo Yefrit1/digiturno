@@ -315,7 +315,8 @@ class MainWindow(QMainWindow):
         try:
             credentials = pika.PlainCredentials(os.getenv("RABBITMQ_USER"), os.getenv("RABBITMQ_PASS"))
             parameters = pika.ConnectionParameters(
-                host='localhost',
+                host=os.getenv('LOCAL_IP'),
+                port=int(os.getenv('PORT')),
                 credentials=credentials)
                 #heartbeat=30,
                 #blocked_connection_timeout=5,
@@ -339,12 +340,12 @@ class MainWindow(QMainWindow):
     
     def setup_consumers(self):
         """Declare consumer queues and bindings"""
-        self.channel.queue_declare(queue=f'broadcast_queue_{self.id}', durable=True)
+        self.channel.queue_declare(queue=f'broadcast_queue_{self.id}', durable=True, auto_delete=True)
         self.channel.queue_bind(
             exchange='digiturno_broadcast',
             queue=f'broadcast_queue_{self.id}',
             routing_key='')
-        self.channel.queue_declare(queue=f'ack_queue_{self.id}', durable=True)
+        self.channel.queue_declare(queue=f'ack_queue_{self.id}', durable=True, auto_delete=True)
         self.channel.queue_bind(
             exchange='ack_exchange',
             queue=f'ack_queue_{self.id}',
