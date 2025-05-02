@@ -296,8 +296,13 @@ class MainWindow(QMainWindow):
         widget.setPalette(palette)
     
     def setup_rabbitmq(self):
-        credentials = pika.PlainCredentials(os.getenv("RABBITMQ_USER"), os.getenv("RABBITMQ_PASS"))
-        parameters = pika.ConnectionParameters(host=os.getenv('LOCAL_IP'), port=int(os.getenv('PORT')), credentials=credentials)
+        credentials = pika.PlainCredentials(
+            os.getenv("RABBITMQ_USER"),
+            os.getenv("RABBITMQ_PASS"))
+        parameters = pika.ConnectionParameters(
+            host=os.getenv('FROM_ADMIN_IP'),
+            port=int(os.getenv('PORT')),
+            credentials=credentials)
         self.connection = pika.BlockingConnection(parameters)
         self.channel = self.connection.channel()
 
