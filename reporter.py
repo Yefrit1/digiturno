@@ -1,4 +1,4 @@
-import pika, json, os, sqlite3, traceback, csv, io
+import pika, json, os, sqlite3, traceback, csv, io, sys
 from b2sdk.v2 import B2Api, InMemoryAccountInfo
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -43,39 +43,25 @@ class Reporter:
             if not rows:
                 print('[~] No data found for requested report.')
                 return
+            multirows = []
+            for i in range(50000):
+                multirows.append(rows)
+            rows = multirows
 
-            if action == 'save':
-                filename = self.build_filename(period, startDateTime, end)
-                filepath = os.path.join("reports", filename)
-                with open(filepath, "w", newline="", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(["Turno", "Cliente", "Creado", "Llamado", "Funcionario"])
-                    writer.writerows(rows)
-                print(f'[✓] Report saved to {filepath}')
-                
-                url = self.upload_to_b2(filepath, filename)
-                if url and properties.reply_to:
-                    self.channel.basic_publish(
-                        exchange='',
-                        routing_key=properties.reply_to,
-                        body=json.dumps({"url": url}).encode("utf-8")
-                    )
-
-            elif action == 'send':
-                multirows = []
-                for i in range(15101):
-                    multirows.append(rows)
-                #output = io.StringIO()
-                #writer = csv.writer(output)
-                #writer.writerows(multirows)
-                #csv_string = output.getvalue()
-                self.channel.basic_publish(
-                    exchange='',
-                    routing_key=properties.reply_to,
-                    #body=csv_string.encode("utf-8"))
-                    body=json.dumps(multirows))
-                print('[✓] Report sent to reply queue')
-
+            if action == 'send':
+                msgBody = json.dumps(rows)
+                if sys.getsizeof(msgBody)>=16777216:
+                    self.save_and_upload(period, startDateTime, end, rows, properties)
+                else:
+                    try:
+                        self.channel.basic_publish(
+                            exchange='',
+                            routing_key=properties.reply_to,
+                            #body=csv_string.encode("utf-8"))
+                            body=json.dumps(rows))
+                        print('[✓] Report sent to reply queue')
+                    except:
+                        traceback.print_exc()
             else:
                 print(f"[!] Unknown action: {action}")
 
@@ -140,8 +126,25 @@ class Reporter:
             case _:
                 return "report.csv"
     
+    def save_and_upload(self, period, startDateTime, end, rows, properties):
+        filename = self.build_filename(period, startDateTime, end)
+        filepath = os.path.join("reports", filename)
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Turno", "Cliente", "Creado", "Llamado", "Funcionario"])
+            writer.writerows(rows)
+        print(f'[✓] Report saved to {filepath}')
+        
+        url = self.upload_to_b2(filepath, filename)
+        if url and properties.reply_to:
+            self.channel.basic_publish(
+                exchange='',
+                routing_key=properties.reply_to,
+                body=json.dumps({"url": url}).encode("utf-8"))
+    
     def upload_to_b2(self, filepath, filename):
         try:
+            print('[-] Uploading report...')
             info = InMemoryAccountInfo()
             b2_api = B2Api(info)
             b2_api.authorize_account("production", os.getenv("B2_KEY_ID"), os.getenv("B2_APP_KEY"))
