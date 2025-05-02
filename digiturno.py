@@ -499,17 +499,18 @@ class MainWindow(QMainWindow):
             widget.setAutoFillBackground(True)
             widget.setPalette(palette)
     
-    # Returns pixel value of screen width % based on parameter
     def screen_width(self, num):
+        "Returns pixel value of screen width % based on parameter"
         return int(self.screenGeometry.width()*num/100)
-    # Returns pixel value of screen height % based on parameter
     def screen_height(self, num):
+        "Returns pixel value of screen height % based on parameter"
         return int(self.screenGeometry.height()*num/100)
     
     def setup_rabbitmq(self):
         credentials = pika.PlainCredentials(os.getenv("RABBITMQ_USER"), os.getenv("RABBITMQ_PASS"))
-        parameters = pika.ConnectionParameters(host=os.getenv('LOCAL_IP'), port=int(os.getenv('PORT')),
-                                               virtual_host='/', credentials=credentials)
+        parameters = pika.ConnectionParameters(host=os.getenv('LOCAL_IP'),
+                                               port=int(os.getenv('PORT')),
+                                               credentials=credentials)
         self.connection = pika.BlockingConnection(parameters)
         self.channel = self.connection.channel()
 
