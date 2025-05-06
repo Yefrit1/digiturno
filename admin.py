@@ -299,11 +299,23 @@ class MainWindow(QMainWindow):
         credentials = pika.PlainCredentials(
             os.getenv("RABBITMQ_USER"),
             os.getenv("RABBITMQ_PASS"))
-        parameters = pika.ConnectionParameters(
-            host=os.getenv('FROM_ADMIN_IP'),
+        parametersPublic = pika.ConnectionParameters(
+            host=os.getenv('PUBLIC_IP'),
             port=int(os.getenv('PORT')),
             credentials=credentials)
-        self.connection = pika.BlockingConnection(parameters)
+        parametersLocal = pika.ConnectionParameters(
+            host=os.getenv('LOCAL_IP'),
+            port=int(os.getenv('PORT')),
+            credentials=credentials)
+        try:
+            print('[~] Attempting to connect via public IP...')
+            self.connection = pika.BlockingConnection(parametersPublic)
+            print('[✓] Connected successfully.')
+        except pika.exceptions.AMQPConnectionError:
+            print('[!] Failed to connect via public IP.\n\n[~] Attempting to connect via local IP...')
+            self.connection = pika.BlockingConnection(parametersLocal)
+            print('[✓] Connected successfully.')
+        except: traceback.print_exc()
         self.channel = self.connection.channel()
 
         self.channel.exchange_declare(
