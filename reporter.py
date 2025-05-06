@@ -35,7 +35,7 @@ class Reporter:
                     self.channel.basic_publish(
                         exchange='',
                         routing_key=properties.reply_to,
-                        body=json.dumps({'command': 'pong'}))
+                        body=json.dumps('pong'))
                 return
 
             if data.get('command') != 'generate_report':

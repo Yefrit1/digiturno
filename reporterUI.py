@@ -16,6 +16,7 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self.setup_rabbitmq()
         self.commandSignal.connect(self.handle_command)
+        self.ping_reporter()
         
     def init_ui(self):
         self.setWindowTitle("Digiturno reportes")
@@ -94,6 +95,7 @@ class MainWindow(QMainWindow):
         self.btnPing = QPushButton('Ping servidor')
         self.btnPing.clicked.connect(self.ping_reporter)
         self.labelPing = QLabel('Sin conexión')
+        self.labelPing.setStyleSheet('font-weight: bold; color: red;')
         
         vBox1.addWidget(self.btnGenerate)
         vBox1.addWidget(self.btnPing)
@@ -197,14 +199,13 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"Error processing message: {e}")
     
-    def handle_command(self, data):
-        data = json.loads(data)
-        command = data.get('command')
-        match command:
-            case 'get_report':
-                pass
-            case 'pong':
-                self.labelPing.setText('Conectado')
+    def handle_command(self, command):
+        command = json.loads(command)
+        if command == 'pong':
+            self.labelPing.setText('Conectado')
+            self.labelPing.setStyleSheet('font-weight: bold; color: green;')
+        else:
+            print(command)
     
     def ping_reporter(self):
         msgBody = {'command': 'ping'}
