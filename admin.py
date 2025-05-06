@@ -1,4 +1,4 @@
-import sys, socket, sqlite3, time, traceback, io, pika, time, json, threading, os
+import sys, socket, time, traceback, io, pika, time, json, threading, os
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
@@ -12,10 +12,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.screenGeometry = QApplication.primaryScreen().geometry()
-        self.host = '192.168.0.54'
-        self.port = 47529
         self.current_user = None
-        self.init_db()
         self.init_ui()
         self.modedRows = set()
         self.setup_rabbitmq()
@@ -144,17 +141,6 @@ class MainWindow(QMainWindow):
         self.stackedWidget.addWidget(widget0)
         self.stackedWidget.addWidget(widget1)
 
-    def init_db(self):
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        # Add default admin if not exists
-        cursor.execute('''
-            INSERT OR IGNORE INTO funcionarios (nombre, identificacion, usuario, contrasena, rol)
-            VALUES ('nombreAdmin', 'CC1094044402', 'admin', 'pass', 1)
-        ''')
-        conn.commit()
-        conn.close()
-        
     def load_users(self):
         self.tableStaff.blockSignals(True)
         self.tableStaff.setRowCount(len(self.users))
