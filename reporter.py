@@ -23,12 +23,20 @@ class Reporter:
         parameters = pika.ConnectionParameters('localhost', credentials=credentials)
         connection = pika.BlockingConnection(parameters)
         self.channel = connection.channel()
-        self.channel.queue_declare(queue='report_queue', durable=True)
+        self.channel.queue_declare(queue='report_queue', durable=True, auto_delete=True)
 
     def on_message(self, ch, method, properties, body):
         try:
             data = json.loads(body)
             print(f'[>] Received command: {data}')
+            
+            if data.get('command') == 'ping':
+                if properties.reply_to:
+                    self.channel.basic_publish(
+                        exchange='',
+                        routing_key=properties.reply_to,
+                        body=json.dumps({'command': 'pong'}))
+                return
 
             if data.get('command') != 'generate_report':
                 print("[~] Unknown command.")
@@ -43,10 +51,10 @@ class Reporter:
             if not rows:
                 print('[~] No data found for requested report.')
                 return
-            multirows = []
-            for i in range(50000):
-                multirows.append(rows)
-            rows = multirows
+            #multirows = []
+            #for i in range(50000):
+            #    multirows.append(rows)
+            #rows = multirows
 
             if action == 'send':
                 msgBody = json.dumps(rows)
@@ -95,6 +103,7 @@ class Reporter:
             SELECT
                 t.servicio || '-' || t.numero AS turno,
                 c.nombre AS cliente,
+                c.asociado AS asociado,
                 t.creado,
                 t.llamado,
                 f.nombre AS funcionario

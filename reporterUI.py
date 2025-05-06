@@ -1,9 +1,10 @@
-import sys, pika, traceback, json
+import sys, os, pika, json, traceback, threading, uuid
 from dotenv import load_dotenv
 from datetime import datetime
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
+from queue import Queue
 load_dotenv()
 
 class MainWindow(QMainWindow):
@@ -13,8 +14,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.screenGeometry = QApplication.primaryScreen().geometry()
         self.init_ui()
-        #self.setup_rabbitmq()
-        #self.commandSignal.connect(self.handle_command)
+        self.setup_rabbitmq()
+        self.commandSignal.connect(self.handle_command)
         
     def init_ui(self):
         self.setWindowTitle("Digiturno reportes")
@@ -43,8 +44,8 @@ class MainWindow(QMainWindow):
         self.endTxt = QLineEdit()
         self.startTxt.editingFinished.connect(self.validate_date_input)
         self.endTxt.editingFinished.connect(self.validate_date_input)
-        self.startTxt.focusInEvent = lambda e: self.set_active_field('start')
-        self.endTxt.focusInEvent = lambda e: self.set_active_field('end')
+        self.startTxt.focusInEvent = lambda e: self.active_field_changed('start')
+        self.endTxt.focusInEvent = lambda e: self.active_field_changed('end')
         
         hBox0.addWidget(self.startTxt)
         hBox0.addWidget(labelHypen)
@@ -88,9 +89,15 @@ class MainWindow(QMainWindow):
         vBox1 = QVBoxLayout(vWidget1)
         vWidget1.setLayout(vBox1)
         
-        btnGenerate = QPushButton('Generar reporte')
+        self.btnGenerate = QPushButton('Generar reporte')
+        self.btnGenerate.clicked.connect(self.generate_pressed)
+        self.btnPing = QPushButton('Ping servidor')
+        self.btnPing.clicked.connect(self.ping_reporter)
+        self.labelPing = QLabel('Sin conexión')
         
-        vBox1.addWidget(btnGenerate)
+        vBox1.addWidget(self.btnGenerate)
+        vBox1.addWidget(self.btnPing)
+        vBox1.addWidget(self.labelPing)
         
         hBox1.addWidget(vWidget0)
         hBox1.addWidget(vWidget1)
@@ -102,7 +109,7 @@ class MainWindow(QMainWindow):
 ####### Stack widgets #######
         self.stackedWidget.addWidget(widget0)
     
-    def set_active_field(self, field):
+    def active_field_changed(self, field):
         self.activeField = field
         if field == 'start':
             self.endTxt.setStyleSheet('')
@@ -143,6 +150,82 @@ class MainWindow(QMainWindow):
             self.lastDate1 = self.lastDate2 = selected
         self.startTxt.setText(self.lastDate1.toString('yyyy-MM-dd'))
         self.endTxt.setText(self.lastDate2.toString('yyyy-MM-dd'))
+        
+    def generate_pressed(self):
+        self.request_report()
+        
+    def setup_rabbitmq(self):
+        credentials = pika.PlainCredentials(
+            os.getenv('RABBITMQ_USER'),
+            os.getenv('RABBITMQ_PASS'))
+        parametersLocal = pika.ConnectionParameters(
+            host=os.getenv('LOCAL_IP'),
+            port=int(os.getenv('PORT')),
+            credentials=credentials)
+        parametersPublic = pika.ConnectionParameters(
+            host=os.getenv('PUBLIC_IP'),
+            port=int(os.getenv('PORT')),
+            credentials=credentials)
+        try:
+            print('[~] Attempting to connect via public IP...')
+            self.connection = pika.BlockingConnection(parametersPublic)
+            print('[✓] Connected successfully.')
+        except pika.exceptions.AMQPConnectionError:
+            print('[!] Failed to connect via public IP.\n\n[~] Attempting to connect via local IP...')
+            self.connection = pika.BlockingConnection(parametersLocal)
+            print('[✓] Connected successfully.')
+        except: traceback.print_exc()
+        
+        self.channel = self.connection.channel()
+        self.channel.basic_consume(queue='amq.rabbitmq.reply-to',
+            on_message_callback=self.handle_message,
+            auto_ack=True)
+
+        self.rabbitmq_thread = threading.Thread(
+            target=self.start_consumer,
+            daemon=True)
+        self.rabbitmq_thread.start()
+        
+    def start_consumer(self):
+        self.channel.start_consuming()
+        
+    def handle_message(self, channel, method, properties, body):
+        print(f'[>] Received msg:\n{body}')
+        try:
+            message = body.decode('utf-8')
+            self.commandSignal.emit(message)
+        except Exception as e:
+            print(f"Error processing message: {e}")
+    
+    def handle_command(self, data):
+        data = json.loads(data)
+        command = data.get('command')
+        match command:
+            case 'get_report':
+                pass
+            case 'pong':
+                self.labelPing.setText('Conectado')
+    
+    def ping_reporter(self):
+        msgBody = {'command': 'ping'}
+        self.channel.basic_publish(exchange="",
+            routing_key="report_queue",
+            properties=pika.BasicProperties(
+                reply_to='amq.rabbitmq.reply-to',
+                delivery_mode=1),
+            body=json.dumps(msgBody))
+        
+    def request_report(self):
+        msgBody = {'command': 'generate_report',
+            'period': 'day',
+            'from': '2025-04-30'}
+        self.channel.basic_publish(exchange="",
+            routing_key="report_queue",
+            properties=pika.BasicProperties(
+                reply_to='amq.rabbitmq.reply-to',
+                expiration='10000',
+                delivery_mode=1),
+            body=json.dumps(msgBody))
     
     def set_background_color(self, widget, color):
         palette = widget.palette()
