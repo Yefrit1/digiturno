@@ -1,4 +1,4 @@
-import sys, socket, time, traceback, io, pika, time, json, threading, os
+import sys, traceback, pika, json, threading, os
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *

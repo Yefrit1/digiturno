@@ -1,6 +1,5 @@
-import sys, os, pika, json, traceback, threading, time, csv
+import sys, os, pika, json, traceback, threading, csv
 from dotenv import load_dotenv
-from datetime import datetime
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *

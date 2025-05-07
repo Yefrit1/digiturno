@@ -1,4 +1,4 @@
-import pika, json, os, sqlite3, traceback, csv, io, sys
+import pika, json, os, sqlite3, traceback, csv, sys
 from b2sdk.v2 import B2Api, InMemoryAccountInfo
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -132,9 +132,9 @@ class Reporter:
                 return f"report_{startDateTime.date()}.csv"
             case 'week':
                 weekNum = startDateTime.isocalendar().week
-                return f"report_{startDateTime.year}_week_{weekNum}.csv"
+                return f"report_{startDateTime.year}_week_{weekNum:02d}.csv"
             case 'month':
-                return f"report_{startDateTime.year}_month_{startDateTime.month}.csv"
+                return f"report_{startDateTime.year}_month_{startDateTime.month:02d}.csv"
             case 'year':
                 return f"report_year_{startDateTime.year}.csv"
             case 'custom' if endDate:

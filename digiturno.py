@@ -294,8 +294,8 @@ class MainWindow(QMainWindow):
         self.commandSignal.connect(self.handle_command)
         self.request_queue()
 
-    # Called when a button from the keypad is pressed
     def kpad_pressed(self):
+        """Called when a button from the keypad (numbers) is clicked"""
         button = self.sender()
         if button.text() == "Borrar":
             self.lineID.setText(self.lineID.text()[:-1])
@@ -304,8 +304,8 @@ class MainWindow(QMainWindow):
             new_number = current_number + button.text()
             self.lineID.setText(new_number)
     
-    # Called when a button from the keyboard is pressed
     def kboard_pressed(self):
+        """Called when a button from the keyboard (letters) is clicked"""
         button = self.sender()
         current_text = self.lineNom.text()
         if button.text() == "Borrar":
@@ -322,8 +322,8 @@ class MainWindow(QMainWindow):
             new_text = current_text + lowCased
             self.lineNom.setText(new_text)
     
-    # Used to capitalize the first letter of each word
     def capitalize_words(self):
+        """Capitalize the first letter of each word"""
         text = self.lineNom.text()
         if len(text) > 0:
             words = text.split(' ')
@@ -333,8 +333,8 @@ class MainWindow(QMainWindow):
             self.lineNom.setText(capitalized_text)
             self.lineNom.blockSignals(False)
 
-    # Called when confirm button in CÉDULA layout is clicked
     def ced_confirm(self):
+        """Called when confirm button in CÉDULA layout is clicked"""
         self.cedula = self.lineID.text().strip()
         if self.cedula:
             self.request_ID_check(self.cedula)
@@ -342,8 +342,8 @@ class MainWindow(QMainWindow):
             pass # No number input
         self.lineID.setText("")
     
-    # Called when confirm button in NOMBRE layout is clicked
     def nom_confirm(self):
+        """Called when confirm button in NOMBRE layout is clicked"""
         self.nombre = self.lineNom.text().strip()
         if self.nombre:
             self.send_customer_name(self.nombre)
@@ -352,19 +352,22 @@ class MainWindow(QMainWindow):
         self.lineNom.setText("")
     
     def nom_return(self):
+        """Called when return button in NOMBRE layout is clicked"""
         self.stackedWidget.setCurrentIndex(self.prevIndex)
         self.lineNom.setText("")
     
-    # Button to return from SERVICIO layout
     def serv_return(self):
+        """Called when return button from SERVICIO layout is clicked"""
         self.stackedWidget.setCurrentIndex(self.prevIndex)
         self.prevIndex = 0 if self.prevIndex == 1 else self.prevIndex
 
     def go_to_ent(self):
+        """Go to first layout (CÉDULA)"""
         self.stackedWidget.setCurrentIndex(0)
         self.prevIndex = 0
 
     def go_to_turn(self):
+        """Go to layout TURNO and send new turn command to server"""
         servicioTxt = self.sender().text()
         match servicioTxt:
             case 'Asesoría':
@@ -392,8 +395,10 @@ class MainWindow(QMainWindow):
         self.stackedWidget.setCurrentIndex(3)
         self.prevIndex = 2
     
-    # Sets stylesheet for a label
     def style_label(self, label, fontSize):
+        """Set stylesheet for a label. Parameters:
+        label (QLabel): Label to set stylesheet
+        fontSize (int): Based on screen width %"""
         label.setStyleSheet(f"""
             QLabel {{
                 color: #284F1A;
@@ -405,8 +410,16 @@ class MainWindow(QMainWindow):
         label.setGraphicsEffect(shadow)
         label.setAlignment(Qt.AlignCenter)
 
-    # Sets stylesheet for a button
     def style_button(self, button, fontSize, radius, border, img=None, imgSize=None, red=False):
+        """Set stylesheet for a button. Parameters:
+        button (QPushButton): Button to set stylesheet
+        fontSize (int): Based on screen width %
+        radius (int): Pixel value of border radius
+        border (int): Pixel value of border girth
+        img (Str): Path to img
+        imgSize (int): Based on screen width %
+        red (bool): Uses different background color
+        """
         styleSheet = f"""
             QPushButton {{
                 background: qlineargradient(
@@ -452,8 +465,10 @@ class MainWindow(QMainWindow):
         shadow.setOffset(2, 2)
         button.setGraphicsEffect(shadow)
 
-    # Sets stylesheet for a line edit
     def style_line_edit(self, label, fontSize):
+        """Set stylesheet for a line edit. Parameters:
+        label (QLineEdit): Line edit to set stylesheet
+        fontSize (int): Based on screen width %"""
         label.setStyleSheet(f"""
             QLineEdit {{
                 color: #204114;
@@ -464,6 +479,11 @@ class MainWindow(QMainWindow):
         label.setAlignment(Qt.AlignCenter)
 
     def add_spacer(self, layout, width=None, height=None):
+        """Add QLabel to layout. Parameters:
+        layout (QLayout): Any type of pyqt layout
+        width (int): Pixel value of label width
+        height (int): Pixel value of label height
+        """
         label = QLabel()
         if width:
             label.setFixedWidth(width)
@@ -471,8 +491,8 @@ class MainWindow(QMainWindow):
             label.setFixedHeight(height)
         layout.addWidget(label)
 
-    # Adds a logo label
     def add_logo(self, layout):
+        """Add QLabel with logo img to layout"""
         label = QLabel()
         label.setAlignment(Qt.AlignTop)
         pixmap = QPixmap("logoCoohem.png")
@@ -482,15 +502,15 @@ class MainWindow(QMainWindow):
         label.setGraphicsEffect(shadow)
         layout.addWidget(label)
 
-    # Used on a widget to set background color
     def set_background_color(self, widget, color):
+        """Used on a widget to set background color"""
         palette = widget.palette()
         palette.setColor(QPalette.Background, QColor(color))
         widget.setAutoFillBackground(True)
         widget.setPalette(palette)
 
-    # Used on a widget to set a background pic
     def set_background_image(self, widget):
+        """Used on a widget to set a background picture"""
         pixmap = QPixmap("logoCoohem.png")
         if not pixmap.isNull():
             palette = widget.palette()
@@ -507,10 +527,14 @@ class MainWindow(QMainWindow):
         return int(self.screenGeometry.height()*num/100)
     
     def setup_rabbitmq(self):
-        credentials = pika.PlainCredentials(os.getenv("RABBITMQ_USER"), os.getenv("RABBITMQ_PASS"))
-        parameters = pika.ConnectionParameters(host=os.getenv('LOCAL_IP'),
-                                               port=int(os.getenv('PORT')),
-                                               credentials=credentials)
+        """Setup connection to RabbitMQ server"""
+        credentials = pika.PlainCredentials(
+            os.getenv("RABBITMQ_USER"),
+            os.getenv("RABBITMQ_PASS"))
+        parameters = pika.ConnectionParameters(
+            host=os.getenv('LOCAL_IP'),
+            port=int(os.getenv('PORT')),
+            credentials=credentials)
         self.connection = pika.BlockingConnection(parameters)
         self.channel = self.connection.channel()
 
@@ -527,7 +551,7 @@ class MainWindow(QMainWindow):
         
         self.channel.basic_consume(
             queue='ack_queue_user',
-            on_message_callback=self.handle_message,
+            on_message_callback=self.handle_msg,
             auto_ack=True)
 
         self.rabbitmq_thread = threading.Thread(
@@ -538,7 +562,8 @@ class MainWindow(QMainWindow):
     def start_consumer(self):
         self.channel.start_consuming()
     
-    def handle_message(self, channel, method, properties, body):
+    def handle_msg(self, channel, method, properties, body):
+        """Handle incoming messages through RabbitMQ"""
         try:
             message = body.decode('utf-8')
             self.commandSignal.emit(message)
@@ -546,6 +571,7 @@ class MainWindow(QMainWindow):
             print(f"Error processing message: {e}")
     
     def handle_command(self, command):
+        """Process incoming commands recieved via signal"""
         if command.startswith('ACK_CUSTOMER_ID_CHECK:'):
             _, reg, nom, asc = command.split(':')
             if reg == '1':
@@ -560,9 +586,6 @@ class MainWindow(QMainWindow):
             self.nombre = nom
             self.stackedWidget.setCurrentIndex(2) # Sends to layout 2 (SERVICIO)
             self.prevIndex = 1
-        elif command.startswith('ACK_NEW_TURN:'):
-            _, serv = command.split(':')
-            print(f"New turn {serv}-{self.queue[serv][-1]} acknowledged") # Debug
         else:
             listQueue = json.loads(command)
             self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}

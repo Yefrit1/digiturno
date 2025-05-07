@@ -20,8 +20,7 @@ class TurnAlert(QLabel):
             font-weight: bold;
             color: white;
             border: 3px solid #3E7B27;
-            border-radius: 30px;
-        """)
+            border-radius: 30px;""")
         self.setFixedSize(int(self.screenGeometry.width()*0.47), int(self.screenGeometry.height()*0.5))
         # Opacity property
         self.opacityP = QGraphicsOpacityEffect(self)
@@ -98,8 +97,9 @@ class Digiturno(QMainWindow):
         mainLayout.setContentsMargins(0, 0, 0, 0)
         # Header layout
         headerLayout = QHBoxLayout()
-        headerLayout.setContentsMargins(self.screen_width(2), self.screen_height(3),
-                                        self.screen_width(2), self.screen_height(2))
+        headerLayout.setContentsMargins(
+            self.screen_width(2), self.screen_height(3),
+            self.screen_width(2), self.screen_height(2))
         # Logo
         labelLogo = QLabel()
         pixmapLogo = QPixmap("logoCoohem.png")
@@ -132,12 +132,14 @@ class Digiturno(QMainWindow):
         self.gridLayout.setAlignment(Qt.AlignTop | Qt.AlignCenter)
         self.gridLayout.setHorizontalSpacing(self.screen_width(4))
         self.gridLayout.setVerticalSpacing(self.screen_height(15))
-        self.gridLayout.setContentsMargins(self.screen_width(3), self.screen_height(5),
-                                           self.screen_width(3), 0)
+        self.gridLayout.setContentsMargins(
+            self.screen_width(3), self.screen_height(5),
+            self.screen_width(3), 0)
         # HBox for waiting
         self.waitLayout = QHBoxLayout()
-        self.waitLayout.setContentsMargins(self.screen_width(3), 0,
-                                           self.screen_width(3), self.screen_height(4))
+        self.waitLayout.setContentsMargins(
+            self.screen_width(3), 0,
+            self.screen_width(3), self.screen_height(4))
         self.waitLayout.setSpacing(self.screen_width(1))
         self.waitLayout.setAlignment(Qt.AlignBottom | Qt.AlignLeft)
         self.waitHeader = QHBoxLayout()
@@ -161,6 +163,7 @@ class Digiturno(QMainWindow):
         verticalLayout.addLayout(self.waitLayout)
 
     def handle_command(self, command):
+        """Process incoming commands recieved via signal"""
         with self.commandLock:
             print(f"Command received: {command}") # Debug
             if command.startswith('NEW_TURN:'):
@@ -229,7 +232,9 @@ class Digiturno(QMainWindow):
                 self.ack_delete_funcionarios(ids)
 
     def new_turn(self, cedula, servicio):
-        """Handles new turns"""
+        """Handle new turns. Updates DB and queue, and calls broadcast. Parameters:
+        cedula (Str): Customer's identification (not id from table)
+        servicio (Str): Service type"""
         fechaHoy = datetime.now().strftime("%Y-%m-%d")
         with sqlite3.connect(db_path) as conn:
             try:
@@ -257,14 +262,13 @@ class Digiturno(QMainWindow):
                 
                 self.update_waiting()
                 self.broadcast_update(f"NEW_TURN:{servicio}-{numero}:{nombre}")
-                self.ack_new_turn(servicio)
             except:
                 traceback.print_exc()
                 print("^Error handling new turn. Read traceback above^")
                 conn.rollback()
     
     def next_turn(self, funcionario, servicio, numero, estacion, rk):
-        """Updates queue, serving and DB when a turn is called. Parameters:
+        """Update queue, serving and DB when a turn is called. Parameters:
         funcionario (int): id from funcionarios DB
         servicio (Str): Turn's service type
         numero (int): Turn number
@@ -305,7 +309,7 @@ class Digiturno(QMainWindow):
                 conn.rollback()
 
     def cancel_turn(self, funcionario, rk):
-        """Cancel serving turn for funcionario. Updates DB and calls update_serving.
+        """Cancel serving turn for funcionario. Updates DB and serving.
         Parameters:
         funcionario (int): id from funcionarios table
         rk (Str): Routing key from producer to send ack"""
@@ -341,6 +345,9 @@ class Digiturno(QMainWindow):
                     conn.rollback()
     
     def complete_turn(self, funcionario, rk):
+        """Remove current serving turn from display. Parameters:
+        funcionario (int): Funcionario's id from DB table
+        rk (Str): Routing key to trace back sender"""
         if funcionario in self.servingStations and self.servingStations[funcionario]:
             try:
                 for tuple in self.orderedServing:
@@ -388,7 +395,7 @@ class Digiturno(QMainWindow):
                 layout.removeItem(item)
     
     def update_waiting(self):
-        """Update UI for turns in queue"""
+        """Update displayed turns in queue"""
         self.clear_waitLabels()
         counter = 0
         for servicio, numero in self.orderedQueue:
@@ -434,7 +441,7 @@ class Digiturno(QMainWindow):
         self.update_waiting()
         
     def load_stations(self):
-        """Loads station names from DB"""
+        """Load station names from DB"""
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT nombre FROM estaciones')
@@ -443,7 +450,11 @@ class Digiturno(QMainWindow):
         print(f'Stations:\n{self.stations}')
 
     def show_alert(self, servicio, numero, funcionario, nombre):
-        """Shows turn alert"""
+        """Show turn alert. Parameters:
+        servicio (Str): Service type
+        numero (int): Turn number
+        funcionario (Str): Station name
+        nombre (Str): Customer name"""
         self.turnAlert.setText(f"""
             <div style='text-align: center; line-height: 0.8;'>
                 <div style='font-size: {self.screen_width(5)}px;'>{funcionario}</div>
@@ -503,20 +514,20 @@ class Digiturno(QMainWindow):
             """)
         label.setAlignment(Qt.AlignCenter)
 
-    # Repositions turn alert when resizing
     def resizeEvent(self, event):
+        """Reposition turn alert when resizing window"""
         super().resizeEvent(event)
         self.position_turn_alert()
 
-    # Positions turn alert on the middle
     def position_turn_alert(self):
+        """"Position turn alert on the middle of the window"""
         self.turnAlert.move(
             (self.width() - self.turnAlert.width()) // 2,
             (self.height() - self.turnAlert.height()) // 2
         )
     
-    # Formats clock and keeps it on time
     def update_clock(self):
+        """Format clock and keep it on time"""
         currentTime = datetime.now().strftime("%I:%M")
         if int(datetime.now().strftime("%H")) >= 12:
             currentTime += " p.m."
@@ -524,15 +535,15 @@ class Digiturno(QMainWindow):
             currentTime += " a.m."
         self.clockLabel.setText(currentTime)
 
-    # Returns pixel value of screen width % based on parameter
     def screen_width(self, num):
+        """Return pixel value of screen width % based on parameter"""
         return int(self.screenGeometry.width()*num/100)
-    # Returns pixel value of screen height % based on parameter
     def screen_height(self, num):
+        """Returns pixel value of screen height % based on parameter"""
         return int(self.screenGeometry.height()*num/100)
     
-    # Initializes DB
     def init_db(self):
+        """Create DB tables and placeholder values. Checks for daily reset"""
         self.conn = sqlite3.connect('digiturno.db')
         self.cursor = self.conn.cursor()
         self.cursor.execute("PRAGMA foreign_keys = ON")
@@ -584,50 +595,45 @@ class Digiturno(QMainWindow):
             self.cursor.execute('''
                 CREATE TABLE IF NOT EXISTS control_fecha (
                     id INTEGER PRIMARY KEY CHECK (id = 1),
-                    last_reset DATE NOT NULL,
-                    last_report DATE NOT NULL
-                )
-                                ''')
+                    last_reset DATE NOT NULL)''')
             self.conn.commit()
         except Exception as e:
             print(f"Error creating DB: {e}")
             self.conn.rollback()
         try:
             # Create funcionarios
-            self.cursor.execute('''
+            """self.cursor.execute('''
                 INSERT OR IGNORE INTO funcionarios (identificacion, nombre, usuario, contrasena)
                 VALUES ('CC2132', 'funcionario1', 'funcionario1', 'pass'), ('CC3215', 'funcionario2', 'funcionario2', 'pass'),
                     ('CC4896', 'funcionario3', 'funcionario3', 'pass'), ('CC9525', 'funcionario4', 'funcionario4', 'pass'),
                     ('CC1962', 'funcionario5', 'funcionario5', 'pass'), ('CC1052', 'funcionario6', 'funcionario6', 'pass'),
                     ('CC1524', 'funcionario7', 'funcionario7', 'pass'), ('CC8513', 'funcionario8', 'funcionario8', 'pass'),
                     ('CC4198', 'funcionario9', 'funcionario9', 'pass')
-            ''')
-            self.cursor.execute('''
+            ''')"""
+            """self.cursor.execute('''
                 INSERT OR IGNORE INTO estaciones (nombre)
                 VALUES ('Estación 1'), ('Estación 2'), ('Estación 3'), ('Estación 4'), ('Estación 5'),
                 ('Estación 6'), ('Estación 7'), ('Estación 8'), ('Estación 9')
-            ''')
+            ''')"""
             # Create control de fecha
-            self.cursor.execute('''
-                INSERT OR IGNORE INTO control_fecha (id, last_reset, last_report)
-                VALUES (1, '2024-01-01', '2024-01-01')
-            ''')
+            """self.cursor.execute('''
+                INSERT OR IGNORE INTO control_fecha (id, last_reset)
+                VALUES (1, '2024-01-01')
+            ''')"""
             # Check for daily reset
             today = datetime.now().strftime("%Y-%m-%d")
             self.cursor.execute('''
-                SELECT last_reset FROM control_fecha WHERE id = 1
-                                ''')
+                SELECT last_reset FROM control_fecha WHERE id = 1''')
             last_reset = self.cursor.fetchone()[0]
             if last_reset != today:
                 self.cursor.execute('''
                     UPDATE funcionarios
-                    SET atendidos_hoy = 0, cancelados_hoy = 0
-                                    ''')
+                    SET atendidos_hoy = 0, cancelados_hoy = 0''')
                 self.cursor.execute('''
                     UPDATE control_fecha
                     SET last_reset = ?
                     WHERE id = 1
-                    ''', (today,))
+                ''', (today,))
             for service in self.queue:
                 self.queue[service].clear()
             # Load all pending turn from DB to queue
@@ -636,8 +642,7 @@ class Digiturno(QMainWindow):
                 FROM turnos
                 WHERE estado = 'pendiente'
                 AND DATE(creado) = DATE('now')
-                ORDER BY creado
-            ''')
+                ORDER BY creado''')
             for servicio, numero in self.cursor.fetchall():
                 self.queue[servicio].append(numero)
             self.conn.commit()
@@ -646,9 +651,14 @@ class Digiturno(QMainWindow):
             self.conn.rollback()
         
     def setup_rabbitmq(self):
-        credentials = pika.PlainCredentials(os.getenv("RABBITMQ_USER"), os.getenv("RABBITMQ_PASS"))
+        """Setup connection to RabbitMQ server"""
+        credentials = pika.PlainCredentials(
+            os.getenv("RABBITMQ_USER"),
+            os.getenv("RABBITMQ_PASS"))
         self.connection = pika.BlockingConnection(
-            pika.ConnectionParameters(host='localhost', credentials=credentials))
+            pika.ConnectionParameters(
+                host='localhost',
+                credentials=credentials))
         self.channel = self.connection.channel()
         
         # Direct exchange
@@ -679,7 +689,7 @@ class Digiturno(QMainWindow):
         # Start consuming commands
         self.channel.basic_consume(
             queue='server_commands',
-            on_message_callback=self.handle_rabbitmq_command)
+            on_message_callback=self.handle_msg)
         
         # Run in background thread
         self.rabbitmq_thread = threading.Thread(
@@ -688,27 +698,33 @@ class Digiturno(QMainWindow):
         self.rabbitmq_thread.start()
     
     def start_rabbitmq_consumer(self):
-        """Process RabbitMQ messages"""
+        """Consume RabbitMQ messages"""
         try:
             self.channel.start_consuming()
         except: pass
     
-    def handle_rabbitmq_command(self, ch, method, properties, body):
-        """Handle incoming commands"""
+    def handle_msg(self, ch, method, properties, body):
+        """Handle incoming messages through RabbitMQ"""
         message = body.decode('utf-8')
         self.command_received.emit(message)
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
-    def ack_next_turn(self, routingKey, servicio, numero, nombre):
-        """Send direct acknowledgement message to sender funcionario after next turn."""
+    def ack_next_turn(self, rk, servicio, numero, nombre):
+        """Send direct acknowledgement to funcionario after calling next turn. Parameters:
+        rk (Str): Routing key to trace back funcionario
+        servicio (Str): Service type
+        numero (int): Turn number
+        nombre (Str): Customer name"""
         self.channel.basic_publish(
             exchange='ack_exchange',
-            routing_key=str(routingKey),
+            routing_key=str(rk),
             body=f'ACK_NEXT_TURN:{servicio}-{numero}:{nombre}',
             properties=pika.BasicProperties(delivery_mode=2))
-        print(f"Ack sent: RK:{routingKey}, turn:{servicio}-{numero}, name:{nombre}")
+        print(f"Ack sent: RK:{rk}, turn:{servicio}-{numero}, name:{nombre}")
     
     def ack_chancel_turn(self, rk):
+        """Send direct acknowledgement to funcionario after canceling turn
+        rk (Str): Routing key to trace back funcionario"""
         try:
             self.channel.basic_publish(
                 exchange='ack_exchange',
@@ -719,6 +735,8 @@ class Digiturno(QMainWindow):
         except: traceback.print_exc()
     
     def ack_complete_turn(self, rk):
+        """Send direct acknowledgement to funcionario after completing current turn
+        rk (Str): Routing key to trace back funcionario"""
         try:
             self.channel.basic_publish(
                 exchange='ack_exchange',
@@ -728,19 +746,23 @@ class Digiturno(QMainWindow):
             print(f'Ack for turn complete sent to {rk}')
         except: traceback.print_exc()
 
-    def ack_queue_request(self, routingKey):
+    def ack_queue_request(self, rk):
+        """Send direct acknowledgement to funcionario with requested queue
+        rk (Str): Routing key to trace back funcionario"""
         queue = {}
         for service, numbers in self.queue.items(): # Merge turn info from self.queue and self.queueNames
             queue[service] = [(num, self.queueNames[f"{service}-{num}"]) for num in numbers]
         self.channel.basic_publish(
             exchange='ack_exchange',
-            routing_key=str(routingKey),
+            routing_key=str(rk),
             body=json.dumps(queue),
             properties=pika.BasicProperties(delivery_mode=2))
         print("Ack sent with queue")
         print(queue)
     
     def ack_stations_request(self, rk):
+        """Send direct acknowledgement to funcionario with stations available
+        rk (Str): Routing key to trace back funcionario"""
         stations = [name for name, user in self.stations.items() if user is None]
         try:
             self.channel.basic_publish(
@@ -751,9 +773,16 @@ class Digiturno(QMainWindow):
         except: traceback.print_exc()
     
     def release_station(self, station):
+        """Called when a funcionario logs out or disconnects
+        station (Str): Station name"""
         self.stations[station] = None
 
-    def ack_login_request(self, username, password, station, routingKey):
+    def ack_login_request(self, username, password, station, rk):
+        """Validate funcionario credentials and send acknowledgement of the result. Parameters:
+        username (Str): 'usuario' column from DB table funcionarios
+        password (Str): 'contrasena' column from DB table funcionarios,
+        station (Str): Station name to check availability,
+        rk (Str): Routing key to trace back funcionario"""
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -772,12 +801,15 @@ class Digiturno(QMainWindow):
             else: userID = nombre = station = 'NOT_FOUND' # If credentials don't match any user
         self.channel.basic_publish(
             exchange='ack_exchange',
-            routing_key=str(routingKey),
+            routing_key=str(rk),
             body=f'ACK_LOGIN_REQUEST:{userID}:{nombre}:{station}',
             properties=pika.BasicProperties(delivery_mode=2))
-        print(f"login request ack sent, user ID: {userID}, routing key: {routingKey}")
+        print(f"login request ack sent, user ID: {userID}, routing key: {rk}")
     
     def ack_admin_login_request(self, username, password):
+        """Validate admin credentials and send acknowledgement with the result. Parameters:
+        username (Str): 'usuario' from funcionarios table,
+        password (Str): 'contrasena' from funcionarios table"""
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -804,6 +836,8 @@ class Digiturno(QMainWindow):
             traceback.print_exc()
 
     def ack_customer_ID_check(self, cedula):
+        """Check if customer is registered in DB and send acknowledgement
+        cedula (Str): 'identificacion' column from clientes table"""
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM clientes WHERE identificacion =  ?', (cedula,))
@@ -827,6 +861,9 @@ class Digiturno(QMainWindow):
             traceback.print_exc()
     
     def ack_new_customer(self, cedula, nombre):
+        """Insert new customer into DB and send acknowledgement. Parameters:
+        cedula (Str): 'identificacion' on clientes table
+        nombre (Str): 'nombre' on clientes table"""
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -843,17 +880,8 @@ class Digiturno(QMainWindow):
         except:
             traceback.print_exc()
     
-    def ack_new_turn(self, servicio):
-        try:
-            self.channel.basic_publish(
-                exchange='ack_exchange',
-                routing_key='user',
-                body=f'ACK_NEW_TURN:{servicio}',
-                properties=pika.BasicProperties(delivery_mode=2))
-        except:
-            traceback.print_exc()
-    
     def ack_last_turn_request(self):
+        """Send acknowledgement to customer app with the last turn number of each service type"""
         fechaHoy = datetime.now().strftime("%Y-%m-%d")
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
@@ -870,6 +898,7 @@ class Digiturno(QMainWindow):
             traceback.print_exc()
     
     def ack_funcionarios_list_request(self):
+        """Send acknowledgement with funcionarios list requested by admin"""
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id, nombre, identificacion, usuario, contrasena, rol, estado FROM funcionarios")
@@ -884,6 +913,7 @@ class Digiturno(QMainWindow):
         except: traceback.print_exc()
     
     def ack_funcionarios_list_update(self):
+        """Update funcionarios table and send acknowledgement to admin"""
         try:
             with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
@@ -910,6 +940,7 @@ class Digiturno(QMainWindow):
             print(f'Funcionarios list not updated, error: {e}')
     
     def ack_new_funcionario(self):
+        """Insert new funcionario into DB and send acknowledgement to admin"""
         try:
             with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
@@ -936,6 +967,8 @@ class Digiturno(QMainWindow):
             except: traceback.print_exc()
     
     def ack_delete_funcionarios(self, ids):
+        """Delete funcionarios requested by admin and send acknowledgement.
+        ids (list): List of id's to remove from table"""
         try:
             with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
@@ -952,7 +985,7 @@ class Digiturno(QMainWindow):
         except: traceback.print_exc()
 
     def broadcast_update(self, message):
-        """Call this whenever you need to notify all staff"""
+        """Send broadcast message with exchange 'digiturno_broadcast'. Sent to funcionarios"""
         self.channel.basic_publish(
             exchange='digiturno_broadcast',
             routing_key='',
