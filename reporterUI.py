@@ -20,8 +20,8 @@ class MainWindow(QMainWindow):
         
     def init_ui(self):
         self.setWindowTitle("Digiturno reportes")
-        self.setGeometry(int(self.screenGeometry.width()/2 - 569),
-                         int(self.screenGeometry.height()/2 - 350), 1138, 700)
+        self.setGeometry(int(self.screenGeometry.width()/2 - 500),
+                         int(self.screenGeometry.height()/2 - 350), 1000, 700)
         
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -95,11 +95,13 @@ class MainWindow(QMainWindow):
         self.btnPing = QPushButton('Ping servidor')
         self.btnPing.clicked.connect(self.ping_reporter)
         self.labelPing = QLabel('Sin conexión')
+        self.labelPing.setAlignment(Qt.AlignRight)
         self.labelPing.setStyleSheet('font-weight: bold; color: red;')
         
         vBox1.addWidget(self.btnGenerate)
-        vBox1.addWidget(self.btnPing)
+        vBox1.addStretch()
         vBox1.addWidget(self.labelPing)
+        vBox1.addWidget(self.btnPing)
         
         hBox1.addWidget(vWidget0)
         hBox1.addWidget(vWidget1)
@@ -107,9 +109,48 @@ class MainWindow(QMainWindow):
         layout0.addWidget(hWidget0)
         layout0.addWidget(self.calendar)
         layout0.addWidget(hWidget1)
+
+####### Layout 1 #######
+        widget1 = QWidget()
+        layout1 = QVBoxLayout(widget1)
+        widget1.setLayout(layout1)
+        #
+        hWidget2 = QWidget()
+        hBox2 = QHBoxLayout(hWidget2)
+        hWidget2.setLayout(hBox2)
+        
+        btnReturn = QPushButton('Volver')
+        btnSave = QPushButton('Guardar')
+        
+        btnReturn.clicked.connect(self.return_pressed)
+        
+        hBox2.addWidget(btnReturn)
+        hBox2.addStretch()
+        hBox2.addWidget(btnSave)
+        #
+        scrollArea = QScrollArea()
+        scrollArea.setWidgetResizable(True)
+        
+        self.reportTable = QTableWidget()
+        self.reportTable.setColumnCount(6)
+        self.reportTable.setHorizontalHeaderLabels(['Turno', 'Cliente', 'Asociado', 'Creado', 'Llamado', 'Funcionario'])
+        
+        scrollArea.setWidget(self.reportTable)
+        #
+        layout1.addWidget(hWidget2)
+        layout1.addWidget(scrollArea)
         
 ####### Stack widgets #######
         self.stackedWidget.addWidget(widget0)
+        self.stackedWidget.addWidget(widget1)
+    
+    def load_report(self):
+        self.reportTable.clearContents()
+        self.reportTable.setRowCount(len(self.rows))
+        for rowIdx, row in enumerate(self.rows):
+            for col, data in enumerate(row):
+                self.reportTable.setItem(rowIdx, col, QTableWidgetItem(str(data)))
+                self.reportTable.item(rowIdx, col).setTextAlignment(Qt.AlignCenter)
     
     def active_field_changed(self, field):
         self.activeField = field
@@ -156,6 +197,12 @@ class MainWindow(QMainWindow):
     def generate_pressed(self):
         self.request_report()
         
+    def return_pressed(self):
+        self.stackedWidget.setCurrentIndex(0)
+    
+    def save_pressed(self):
+        pass
+        
     def setup_rabbitmq(self):
         credentials = pika.PlainCredentials(
             os.getenv('RABBITMQ_USER'),
@@ -192,7 +239,6 @@ class MainWindow(QMainWindow):
         self.channel.start_consuming()
         
     def handle_message(self, channel, method, properties, body):
-        print(f'[>] Received msg:\n{body}')
         try:
             message = body.decode('utf-8')
             self.commandSignal.emit(message)
@@ -201,11 +247,14 @@ class MainWindow(QMainWindow):
     
     def handle_command(self, command):
         command = json.loads(command)
+        print(f'[>] Received command:\n{command}')
         if command == 'pong':
             self.labelPing.setText('Conectado')
             self.labelPing.setStyleSheet('font-weight: bold; color: green;')
         else:
-            print(command)
+            self.rows = command
+            self.load_report()
+            self.stackedWidget.setCurrentIndex(1)
     
     def ping_reporter(self):
         msgBody = {'command': 'ping'}
