@@ -1,10 +1,9 @@
-import sys, os, pika, json, traceback, threading, uuid
+import sys, os, pika, json, traceback, threading, time, csv
 from dotenv import load_dotenv
 from datetime import datetime
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
-from queue import Queue
 load_dotenv()
 
 class MainWindow(QMainWindow):
@@ -73,11 +72,11 @@ class MainWindow(QMainWindow):
         btnYear = QRadioButton('Año')
         btnCustom = QRadioButton('Entre _ y _')
         self.btnGroup = QButtonGroup()
-        self.btnGroup.addButton(btnDay)
-        self.btnGroup.addButton(btnWeek)
-        self.btnGroup.addButton(btnMonth)
-        self.btnGroup.addButton(btnYear)
-        self.btnGroup.addButton(btnCustom)
+        self.btnGroup.addButton(btnDay, 0)
+        self.btnGroup.addButton(btnWeek, 1)
+        self.btnGroup.addButton(btnMonth, 2)
+        self.btnGroup.addButton(btnYear, 3)
+        self.btnGroup.addButton(btnCustom, 4)
         self.btnGroup.buttonToggled.connect(self.on_button_toggle)
         btnDay.setChecked(True)
         
@@ -125,6 +124,7 @@ class MainWindow(QMainWindow):
         btnSave = QPushButton('Guardar')
         
         btnReturn.clicked.connect(self.return_pressed)
+        btnSave.clicked.connect(self.save_pressed)
         
         hBox2.addWidget(btnReturn)
         hBox2.addStretch()
@@ -198,20 +198,38 @@ class MainWindow(QMainWindow):
     
     def on_button_toggle(self, btn, checked):
         if not checked: return
-        if btn.text() == 'Entre _ y _':
+        if self.btnGroup.checkedId() == 4:
             self.endTxt.setDisabled(False)
         else:
             self.active_field_changed('start')
             self.endTxt.setDisabled(True)
         
     def generate_pressed(self):
-        self.request_report()
+        end = None
+        match self.btnGroup.checkedId():
+            case 0: period = 'day'
+            case 1: period = 'week'
+            case 2: period = 'month'
+            case 3: period = 'year'
+            case 4:
+                period = 'custom'
+                end = self.endTxt.text()
+        self.request_report(period, self.startTxt.text(), end)
         
     def return_pressed(self):
         self.stackedWidget.setCurrentIndex(0)
     
     def save_pressed(self):
-        pass
+        filePath, _ = QFileDialog.getSaveFileName(
+            parent=self,
+            caption='Guardar reporte',
+            directory=self.filename,
+            filter='CSV Files (*.csv);;All Files (*)')
+        if filePath:
+            with open(filePath, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
+                writer.writerow(["Turno", "Cliente", "Asociado", "Creado", "Llamado", "Funcionario"])
+                writer.writerows(self.rows)
         
     def setup_rabbitmq(self):
         credentials = pika.PlainCredentials(
@@ -255,16 +273,18 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"Error processing message: {e}")
     
-    def handle_command(self, command):
-        command = json.loads(command)
-        print(f'[>] Received command:\n{command}')
-        if command == 'pong':
-            self.labelPing.setText('Conectado')
-            self.labelPing.setStyleSheet('font-weight: bold; color: green;')
-        else:
-            self.rows = command
-            self.load_report()
-            self.stackedWidget.setCurrentIndex(1)
+    def handle_command(self, msg):
+        msg = json.loads(msg)
+        print(f'[>] Received command:\n{msg}')
+        match msg.get('command'):
+            case 'pong':
+                self.labelPing.setText('Conectado')
+                self.labelPing.setStyleSheet('font-weight: bold; color: green;')
+            case 'report':
+                self.rows = msg.get('data')
+                self.filename = msg.get('filename')
+                self.load_report()
+                self.stackedWidget.setCurrentIndex(1)
     
     def ping_reporter(self):
         msgBody = {'command': 'ping'}
@@ -275,10 +295,11 @@ class MainWindow(QMainWindow):
                 delivery_mode=1),
             body=json.dumps(msgBody))
         
-    def request_report(self):
+    def request_report(self, period, start, end=None):
         msgBody = {'command': 'generate_report',
-            'period': 'day',
-            'from': '2025-04-30'}
+            'period': f'{period}',
+            'from': f'{start}',
+            'to': f'{end}'}
         self.channel.basic_publish(exchange="",
             routing_key="report_queue",
             properties=pika.BasicProperties(

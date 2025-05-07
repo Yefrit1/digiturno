@@ -35,7 +35,7 @@ class Reporter:
                     self.channel.basic_publish(
                         exchange='',
                         routing_key=properties.reply_to,
-                        body=json.dumps('pong'))
+                        body=json.dumps({'command': 'pong'}))
                 return
 
             if data.get('command') != 'generate_report':
@@ -51,22 +51,21 @@ class Reporter:
             if not rows:
                 print('[~] No data found for requested report.')
                 return
-            #multirows = []
-            #for i in range(50000):
-            #    multirows.append(rows)
-            #rows = multirows
 
             if action == 'send':
-                msgBody = json.dumps(rows)
+                filename = self.build_filename(period, startDateTime, end)
+                msgBody = json.dumps({
+                    'command': 'report',
+                    'data': rows,
+                    'filename': filename})
                 if sys.getsizeof(msgBody)>=16777216:
-                    self.save_and_upload(period, startDateTime, end, rows, properties)
+                    self.save_and_upload(filename, rows, properties)
                 else:
                     try:
                         self.channel.basic_publish(
                             exchange='',
                             routing_key=properties.reply_to,
-                            #body=csv_string.encode("utf-8"))
-                            body=json.dumps(rows))
+                            body=msgBody)
                         print('[✓] Report sent to reply queue')
                     except:
                         traceback.print_exc()
@@ -135,10 +134,9 @@ class Reporter:
             case _:
                 return "report.csv"
     
-    def save_and_upload(self, period, startDateTime, end, rows, properties):
-        filename = self.build_filename(period, startDateTime, end)
+    def save_and_upload(self, filename, rows, properties):
         filepath = os.path.join("reports", filename)
-        with open(filepath, "w", newline="", encoding="utf-8") as f:
+        with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.writer(f)
             writer.writerow(["Turno", "Cliente", "Creado", "Llamado", "Funcionario"])
             writer.writerows(rows)
