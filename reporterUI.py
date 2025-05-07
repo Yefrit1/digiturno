@@ -71,13 +71,15 @@ class MainWindow(QMainWindow):
         btnWeek = QRadioButton('Semana')
         btnMonth = QRadioButton('Mes')
         btnYear = QRadioButton('Año')
-        btnCustom = QRadioButton('Entre...')
-        btnGroup = QButtonGroup()
-        btnGroup.addButton(btnDay)
-        btnGroup.addButton(btnWeek)
-        btnGroup.addButton(btnMonth)
-        btnGroup.addButton(btnYear)
-        btnGroup.addButton(btnCustom)
+        btnCustom = QRadioButton('Entre _ y _')
+        self.btnGroup = QButtonGroup()
+        self.btnGroup.addButton(btnDay)
+        self.btnGroup.addButton(btnWeek)
+        self.btnGroup.addButton(btnMonth)
+        self.btnGroup.addButton(btnYear)
+        self.btnGroup.addButton(btnCustom)
+        self.btnGroup.buttonToggled.connect(self.on_button_toggle)
+        btnDay.setChecked(True)
         
         vBox0.addWidget(labelRange)
         vBox0.addWidget(btnDay)
@@ -193,6 +195,14 @@ class MainWindow(QMainWindow):
             self.lastDate1 = self.lastDate2 = selected
         self.startTxt.setText(self.lastDate1.toString('yyyy-MM-dd'))
         self.endTxt.setText(self.lastDate2.toString('yyyy-MM-dd'))
+    
+    def on_button_toggle(self, btn, checked):
+        if not checked: return
+        if btn.text() == 'Entre _ y _':
+            self.endTxt.setDisabled(False)
+        else:
+            self.active_field_changed('start')
+            self.endTxt.setDisabled(True)
         
     def generate_pressed(self):
         self.request_report()
