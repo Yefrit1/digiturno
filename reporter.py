@@ -105,6 +105,14 @@ class Reporter:
                 c.asociado AS asociado,
                 t.creado,
                 t.llamado,
+                CASE
+                    WHEN t.estado = 'atendido' THEN
+                        printf("%d:%02d",
+                            CAST((julianday(t.llamado) - julianday(t.creado)) * 1440 AS INTEGER),
+                            CAST(((julianday(t.llamado) - julianday(t.creado)) * 86400) % 60 AS INTEGER))
+                    WHEN t.estado = 'cancelado' THEN 'cancelado'
+                    ELSE 'no atendido'
+                END AS tiempo_espera,
                 f.nombre AS funcionario
             FROM turnos t
             JOIN clientes c ON t.cliente_id = c.id
@@ -138,7 +146,7 @@ class Reporter:
         filepath = os.path.join("reports", filename)
         with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.writer(f)
-            writer.writerow(["Turno", "Cliente", "Creado", "Llamado", "Funcionario"])
+            writer.writerow(["Turno", "Cliente", "Creado", "Llamado", "Espera", "Funcionario"])
             writer.writerows(rows)
         print(f'[✓] Report saved to {filepath}')
         

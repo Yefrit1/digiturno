@@ -19,8 +19,8 @@ class MainWindow(QMainWindow):
         
     def init_ui(self):
         self.setWindowTitle("Digiturno reportes")
-        self.setGeometry(int(self.screenGeometry.width()/2 - 500),
-                         int(self.screenGeometry.height()/2 - 350), 1000, 700)
+        self.setGeometry(int(self.screenGeometry.width()/2 - 600),
+                         int(self.screenGeometry.height()/2 - 350), 1200, 700)
         
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -134,8 +134,9 @@ class MainWindow(QMainWindow):
         scrollArea.setWidgetResizable(True)
         
         self.reportTable = QTableWidget()
-        self.reportTable.setColumnCount(6)
-        self.reportTable.setHorizontalHeaderLabels(['Turno', 'Cliente', 'Asociado', 'Creado', 'Llamado', 'Funcionario'])
+        self.reportTable.setColumnCount(7)
+        self.reportTable.setHorizontalHeaderLabels(
+            ['Turno', 'Cliente', 'Asociado', 'Creado', 'Llamado', 'Espera', 'Funcionario'])
         
         scrollArea.setWidget(self.reportTable)
         #
@@ -228,7 +229,7 @@ class MainWindow(QMainWindow):
         if filePath:
             with open(filePath, 'w', newline='', encoding='utf-8-sig') as f:
                 writer = csv.writer(f)
-                writer.writerow(["Turno", "Cliente", "Asociado", "Creado", "Llamado", "Funcionario"])
+                writer.writerow(["Turno", "Cliente", "Asociado", "Creado", "Llamado", "Espera", "Funcionario"])
                 writer.writerows(self.rows)
         
     def setup_rabbitmq(self):
