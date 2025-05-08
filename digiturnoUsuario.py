@@ -1,9 +1,15 @@
-import sys, traceback, pika, threading, json, os
+import sys, traceback, pika, threading, json, os, logging
+from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 load_dotenv()
+handler = RotatingFileHandler('digiturnoPantalla.log', maxBytes=500000, backupCount=3)
+logging.basicConfig(
+    filename='digiturnoPantalla.log',
+    level=logging.ERROR,
+    format='%(asctime)s [%(levelname)s] %(message)s')
 
 class MainWindow(QMainWindow):
     commandSignal = pyqtSignal(str)
@@ -567,8 +573,9 @@ class MainWindow(QMainWindow):
         try:
             message = body.decode('utf-8')
             self.commandSignal.emit(message)
-        except Exception as e:
-            print(f"Error processing message: {e}")
+        except:
+            logging.exception('Exception handling message')
+            traceback.print_exc()
     
     def handle_command(self, command):
         """Process incoming commands recieved via signal"""
@@ -606,6 +613,7 @@ class MainWindow(QMainWindow):
                 body=f'NEW_TURN:{self.cedula}:{servicio}',
                 properties=pika.BasicProperties(delivery_mode=2))
         except:
+            logging.exception('Exception sending new turn')
             traceback.print_exc()
     
     def request_queue(self):
@@ -616,6 +624,7 @@ class MainWindow(QMainWindow):
                 body='LAST_TURN_PER_SERVICE',
                 properties=pika.BasicProperties(delivery_mode=2))
         except:
+            logging.exception('Exception requesting queue')
             traceback.print_exc()
     
     def request_ID_check(self, cedula):
@@ -626,6 +635,7 @@ class MainWindow(QMainWindow):
                 body=f'CUSTOMER_ID_CHECK:{cedula}',
                 properties=pika.BasicProperties(delivery_mode=2))
         except:
+            logging.exception('Exception requesting ID check')
             traceback.print_exc()
     
     def send_customer_name(self, nombre):
@@ -636,6 +646,7 @@ class MainWindow(QMainWindow):
                 body=f'NEW_CUSTOMER:{self.cedula}:{nombre}',
                 properties=pika.BasicProperties(delivery_mode=2))
         except:
+            logging.exception('Exception sending new customer')
             traceback.print_exc()
 
     def closeEvent(self, event):
@@ -650,6 +661,7 @@ class MainWindow(QMainWindow):
             try: self.rabbitmq_thread.join(timeout=1.0)
             except: pass
         super().closeEvent(event)
+        os._exit(0)
     
 if __name__ == "__main__":
     app = QApplication(sys.argv)

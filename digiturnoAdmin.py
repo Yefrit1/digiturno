@@ -1,9 +1,9 @@
 import sys, traceback, pika, json, threading, os
+from PyQt5.QtGui import QCloseEvent
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
-db_path = "digiturno.db"
 load_dotenv()
 
 class MainWindow(QMainWindow):
@@ -448,6 +448,10 @@ class LoginDialog(QDialog):
                 else: QMessageBox.warning(self, "Error", "El usuario ingresado no es admin")
             else: QMessageBox.warning(self, "Error", "Usuario bloqueado")
         else: QMessageBox.warning(self, "Error", "Credenciales inválidas")
+    
+    def closeEvent(self, event):
+        client.rabbitmq_thread.join(timeout=1)
+        os._exit(0)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

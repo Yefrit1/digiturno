@@ -1,6 +1,7 @@
 *.db
 __pycache__/
 reports/
+exes/
 *.pyc
 client.py
 .env

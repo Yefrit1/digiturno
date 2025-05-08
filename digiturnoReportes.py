@@ -285,6 +285,8 @@ class MainWindow(QMainWindow):
                 self.filename = msg.get('filename')
                 self.load_report()
                 self.stackedWidget.setCurrentIndex(1)
+            case 'no_data_found':
+                QMessageBox.warning(self, "", "No se encontró información en la fecha especificada")
     
     def ping_reporter(self):
         msgBody = {'command': 'ping'}

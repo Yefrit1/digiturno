@@ -1,9 +1,15 @@
-import sys, traceback, pika, time, json, uuid, threading, os
+import sys, traceback, pika, time, json, uuid, threading, os, logging
+from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 load_dotenv()
+handler = RotatingFileHandler('digiturnoPantalla.log', maxBytes=500000, backupCount=3)
+logging.basicConfig(
+    filename='digiturnoPantalla.log',
+    level=logging.ERROR,
+    format='%(asctime)s [%(levelname)s] %(message)s')
 
 class MainWindow(QMainWindow):
     updateUIsignal = pyqtSignal(str)
@@ -225,6 +231,7 @@ class MainWindow(QMainWindow):
                 self.queue = self.convert_lists_to_tuples(json.loads(message))
                 self.update_grid()
         except:
+            logging.exception('Exception handling command')
             traceback.print_exc()
 
     def style_label(self, label, fontSize, color):
@@ -281,6 +288,7 @@ class MainWindow(QMainWindow):
         return int(self.screenGeometry.height()*num/100)
 
     def show_login(self):
+        self.loggedOut = True
         self.dialog = LoginDialog(self)
         self.setup_rabbitmq()
         self.get_stations()
@@ -335,6 +343,7 @@ class MainWindow(QMainWindow):
                 daemon=True)
             self.rabbitmqThread.start()
         except Exception as e:
+            logging.exception('Exception setting up RabbitMQ')
             print(f"Error setting up rabbitmq: {e}\nRetrying in 5 seconds...")
             QTimer.singleShot(5000, self.setup_rabbitmq)
     
@@ -368,17 +377,21 @@ class MainWindow(QMainWindow):
         try:
             message = body.decode('utf-8')
             self.updateUIsignal.emit(message)
-        except Exception as e:
-            print(f"Error processing message: {e}")
+        except:
+            logging.exception('Exception handling message')
+            traceback.print_exc()
             
     def get_stations(self):
+        print('Getting stations...')
         try:
             self.channel.basic_publish(
                 exchange='digiturno_direct',
                 routing_key='server_command',
                 body=f'STATIONS_REQUEST:{self.id}',
                 properties=pika.BasicProperties(delivery_mode=2))
-        except: traceback.print_exc()
+        except:
+            logging.exception('Exception sending stations request')
+            traceback.print_exc()
 
     def request_verification(self, username, password, station):
         try:
@@ -388,6 +401,7 @@ class MainWindow(QMainWindow):
                 body=f'LOGIN_REQUEST:{username}:{password}:{station}:{self.id}',
                 properties=pika.BasicProperties(delivery_mode=2))
         except:
+            logging.exception('Exception requesting verification')
             traceback.print_exc()
             self.setup_rabbitmq()
 
@@ -398,6 +412,7 @@ class MainWindow(QMainWindow):
                 routing_key='server_command',
                 body=f'QUEUE_REQUEST:{self.id}')
         except:
+            logging.exception('Exception requesting queue')
             traceback.print_exc()
             self.setup_rabbitmq()
 
@@ -408,6 +423,7 @@ class MainWindow(QMainWindow):
                 routing_key='server_command',
                 body=f'NEXT_TURN:{self.userID}:{servicio}-{numero}:{self.station}:{self.id}')
         except:
+            logging.exception('Exception calling next turn')
             traceback.print_exc()
             self.setup_rabbitmq()
 
@@ -418,6 +434,7 @@ class MainWindow(QMainWindow):
                 routing_key='server_command',
                 body=f'COMPLETE_TURN:{self.userID}:{self.id}')
         except:
+            logging.exception('Exception sending turn completion')
             traceback.print_exc()
 
     def cancel_current_turn(self):
@@ -427,6 +444,7 @@ class MainWindow(QMainWindow):
                 routing_key='server_command',
                 body=f'CANCEL_TURN:{self.userID}:{self.id}')
         except:
+            logging.exception('Exception canceling current turn')
             traceback.print_exc()
             self.setup_rabbitmq()
     
@@ -510,7 +528,10 @@ class LoginDialog(QDialog):
                 client.channel.queue_delete(queue=f'ack_queue_{client.id}')
                 client.channel.queue_delete(queue=f'broadcast_queue_{client.id}')
             except: pass
+        try: client.rabbitmqThread.join(timeout=1)
+        except: pass
         super().closeEvent(event)
+        os._exit(0)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

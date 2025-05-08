@@ -1,4 +1,4 @@
-import sys, traceback, sqlite3, threading, pika, json, os
+import sys, traceback, sqlite3, threading, pika, json, os, logging
 from dotenv import load_dotenv
 from datetime import datetime
 from PyQt5.QtWidgets import *
@@ -6,6 +6,10 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 db_path = 'digiturno.db'
 load_dotenv()
+logging.basicConfig(
+    filename='digiturnoPantalla.log',
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s')
 
 class TurnAlert(QLabel):
     def __init__(self, parent=None):
@@ -263,6 +267,7 @@ class Digiturno(QMainWindow):
                 self.update_waiting()
                 self.broadcast_update(f"NEW_TURN:{servicio}-{numero}:{nombre}")
             except:
+                logging.exception('Exception when trying to create new turn')
                 traceback.print_exc()
                 print("^Error handling new turn. Read traceback above^")
                 conn.rollback()
@@ -304,6 +309,7 @@ class Digiturno(QMainWindow):
                 self.broadcast_update(f"CALLED:{servicio}-{numero}:{nombre}")
                 self.ack_next_turn(rk, servicio, numero, nombre)
             except:
+                logging.exception('Exception when trying to call next turn')
                 traceback.print_exc()
                 print("^Error calling next turn. Read traceback above^")
                 conn.rollback()
@@ -337,9 +343,10 @@ class Digiturno(QMainWindow):
                             self.orderedServing.remove(tuple)
                     self.servingStations[funcionario] = None
                     self.update_serving()
-                    self.ack_chancel_turn(rk)
+                    self.ack_cancel_turn(rk)
                     print(f"Servings: {self.orderedServing}")
                 except:
+                    logging.exception('Exception when trying to cancel turn')
                     traceback.print_exc()
                     print(f"^Error canceling turn for {funcionario}. Read traceback above^")
                     conn.rollback()
@@ -358,7 +365,9 @@ class Digiturno(QMainWindow):
                 self.update_serving()
                 self.ack_complete_turn(rk)
                 print(f"Servings: {self.orderedServing}")
-            except: traceback.print_exc()
+            except:
+                logging.exception('Exception when trying to complete turn')
+                traceback.print_exc()
         
     def update_serving(self):
         """Update UI with turns that are currently being served"""
@@ -722,7 +731,7 @@ class Digiturno(QMainWindow):
             properties=pika.BasicProperties(delivery_mode=2))
         print(f"Ack sent: RK:{rk}, turn:{servicio}-{numero}, name:{nombre}")
     
-    def ack_chancel_turn(self, rk):
+    def ack_cancel_turn(self, rk):
         """Send direct acknowledgement to funcionario after canceling turn
         rk (Str): Routing key to trace back funcionario"""
         try:
@@ -732,7 +741,9 @@ class Digiturno(QMainWindow):
                 body=f'ACK_CANCEL_TURN',
                 properties=pika.BasicProperties(delivery_mode=2))
             print(f'Ack for turn cancel sent to {rk}')
-        except: traceback.print_exc()
+        except:
+            logging.exception('Exception on ack_cancel_turn method')
+            traceback.print_exc()
     
     def ack_complete_turn(self, rk):
         """Send direct acknowledgement to funcionario after completing current turn
@@ -744,7 +755,9 @@ class Digiturno(QMainWindow):
                 body=f'ACK_COMPLETE_TURN',
                 properties=pika.BasicProperties(delivery_mode=2))
             print(f'Ack for turn complete sent to {rk}')
-        except: traceback.print_exc()
+        except:
+            logging.exception('Exception on ack_complete_turn method')
+            traceback.print_exc()
 
     def ack_queue_request(self, rk):
         """Send direct acknowledgement to funcionario with requested queue
@@ -770,7 +783,9 @@ class Digiturno(QMainWindow):
             routing_key=str(rk),
             body=f'ACK_STATIONS_REQUEST:{json.dumps(stations)}',
             properties=pika.BasicProperties(delivery_mode=2))
-        except: traceback.print_exc()
+        except:
+            logging.exception('Exception on ack_stations_request method')
+            traceback.print_exc()
     
     def release_station(self, station):
         """Called when a funcionario logs out or disconnects
@@ -833,6 +848,7 @@ class Digiturno(QMainWindow):
                 properties=pika.BasicProperties(delivery_mode=2))
             print(f'Admin login ack sent\nfunID: {funID} , isAdm: {isAdm}')
         except:
+            logging.exception('Exception on ack_admin_login_request method')
             traceback.print_exc()
 
     def ack_customer_ID_check(self, cedula):
@@ -858,6 +874,7 @@ class Digiturno(QMainWindow):
                 properties=pika.BasicProperties(delivery_mode=2))
             print(f'Sent customer ID check acknowledgement\nregistered: {reg} , name: {nom} , asociado: {asc}') # Debug
         except:
+            logging.exception('Exception on ack_customer_ID_check method')
             traceback.print_exc()
     
     def ack_new_customer(self, cedula, nombre):
@@ -878,6 +895,7 @@ class Digiturno(QMainWindow):
                 properties=pika.BasicProperties(delivery_mode=2))
             print(f'New customer registered\nID: {cedula} , name: {nombre}')
         except:
+            logging.exception('Exception on ack_new_customer method')
             traceback.print_exc()
     
     def ack_last_turn_request(self):
@@ -895,6 +913,7 @@ class Digiturno(QMainWindow):
                 properties=pika.BasicProperties(delivery_mode=2))
             print(f'Sent last turns:\n{result}')
         except:
+            logging.exception('Exception on ack_last_turn_request method')
             traceback.print_exc()
     
     def ack_funcionarios_list_request(self):
@@ -910,7 +929,9 @@ class Digiturno(QMainWindow):
                 body=json.dumps(users),
                 properties=pika.BasicProperties(delivery_mode=2))
             print(f'Funcionarios list sent:\n{users}')
-        except: traceback.print_exc()
+        except:
+            logging.exception('Exception on ack_funcionarios_list method')
+            traceback.print_exc()
     
     def ack_funcionarios_list_update(self):
         """Update funcionarios table and send acknowledgement to admin"""
@@ -955,7 +976,9 @@ class Digiturno(QMainWindow):
                 routing_key='admin',
                 body=f'ACK_NEW_FUNCIONARIO:good:{id_}:ignore',
                 properties=pika.BasicProperties(delivery_mode=2))
-            except: traceback.print_exc()
+            except:
+                logging.exception('Exception on ack_new_funcionario method')
+                traceback.print_exc()
         except sqlite3.IntegrityError as e:
             try:
                 self.channel.basic_publish(
@@ -964,7 +987,9 @@ class Digiturno(QMainWindow):
                 body=f'ACK_NEW_FUNCIONARIO:error:{e}',
                 properties=pika.BasicProperties(delivery_mode=2))
                 print(f'Error inserting new funcionario: {e}')
-            except: traceback.print_exc()
+            except:
+                logging.exception('Exception on ack_new_funcionario method')
+                traceback.print_exc()
     
     def ack_delete_funcionarios(self, ids):
         """Delete funcionarios requested by admin and send acknowledgement.
@@ -982,7 +1007,9 @@ class Digiturno(QMainWindow):
                 body=f'ACK_DELETE_FUNCIONARIOS:{ids}',
                 properties=pika.BasicProperties(delivery_mode=2))
             print(f'Deleted funcionarios with ids:\n{ids}')
-        except: traceback.print_exc()
+        except:
+            logging.exception('Exception on ack_delete_funcionario method')
+            traceback.print_exc()
 
     def broadcast_update(self, message):
         """Send broadcast message with exchange 'digiturno_broadcast'. Sent to funcionarios"""
@@ -1003,6 +1030,7 @@ class Digiturno(QMainWindow):
             try: self.rabbitmq_thread.join(timeout=1.0)
             except: pass
         super().closeEvent(event)
+        os._exit(0)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

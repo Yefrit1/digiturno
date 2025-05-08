@@ -1,8 +1,12 @@
-import pika, json, os, sqlite3, traceback, csv, sys
+import pika, json, os, sqlite3, traceback, csv, sys, logging
 from b2sdk.v2 import B2Api, InMemoryAccountInfo
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 db_path = 'digiturno.db'
+logging.basicConfig(
+    filename='reporter.log',
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s')
 load_dotenv()
 
 class Reporter:
@@ -50,6 +54,14 @@ class Reporter:
             rows, startDateTime = self.generate_report(period, start, end)
             if not rows:
                 print('[~] No data found for requested report.')
+                try:
+                    msgBody = json.dumps({'command': 'no_data_found'})
+                    self.channel.basic_publish(
+                        exchange='',
+                        routing_key=properties.reply_to,
+                        body=msgBody)
+                except:
+                    logging.exception('EXCEPTION:')
                 return
 
             if action == 'send':
@@ -68,11 +80,12 @@ class Reporter:
                             body=msgBody)
                         print('[✓] Report sent to reply queue')
                     except:
+                        logging.exception('EXCEPTION:')
                         traceback.print_exc()
             else:
                 print(f"[!] Unknown action: {action}")
-
-        except Exception as e:
+        except:
+            logging.exception('EXCEPTION:')
             traceback.print_exc()
         
     def generate_report(self, period, startDate, endDate=None):
@@ -173,6 +186,7 @@ class Reporter:
             print(f"[✓] Uploaded to B2: {downloadURL}")
             return downloadURL
         except Exception as e:
+            logging.exception('EXCEPTION:')
             print("[!] Failed to upload to B2")
             traceback.print_exc()
             return None
