@@ -1,4 +1,5 @@
 import sys, os, pika, json, traceback, threading, csv, logging
+from PyQt5.QtGui import QCloseEvent
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import *
@@ -270,8 +271,11 @@ class MainWindow(QMainWindow):
         self.rabbitmq_thread.start()
         
     def start_consumer(self):
-        self.channel.start_consuming()
-        
+        try:
+            self.channel.start_consuming()
+        finally:
+            self.connection.close()
+            
     def handle_message(self, channel, method, properties, body):
         try:
             message = body.decode('utf-8')
@@ -321,6 +325,12 @@ class MainWindow(QMainWindow):
         palette.setColor(QPalette.Background, QColor(color))
         widget.setAutoFillBackground(True)
         widget.setPalette(palette)
+    
+    def closeEvent(self, event):
+        try: self.channel.stop_consuming()
+        except: print('Couldn\'t stop consuming')
+        self.rabbitmq_thread.join()
+        super().closeEvent(event)
         
 if __name__ == "__main__":
     app = QApplication(sys.argv)

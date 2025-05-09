@@ -1,4 +1,5 @@
 import sys, traceback, pika, time, json, uuid, threading, os, logging
+from PyQt5.QtGui import QCloseEvent
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import *
@@ -24,7 +25,6 @@ class MainWindow(QMainWindow):
         self.userID = None
         self.connection = None
         self.channel = None
-        self.loggedOut = False
         self.init_ui()
         #self.setup_rabbitmq()
         self.updateUIsignal.connect(self.handle_server_update)
@@ -288,17 +288,15 @@ class MainWindow(QMainWindow):
         return int(self.screenGeometry.height()*num/100)
 
     def show_login(self):
-        self.loggedOut = True
         self.dialog = LoginDialog(self)
         self.setup_rabbitmq()
         self.get_stations()
+        self.loggedOut = False
         if self.dialog.exec_() == QDialog.Accepted:
             self.userID = self.dialog.userID
             self.nombreF = self.dialog.name
             self.station = self.dialog.station
-            self.loggedOut = False
             self.labelTitle.setText(f"{self.nombreF}")
-            #self.setup_rabbitmq()
             self.request_queue()
             self.show()
         else:
@@ -371,7 +369,8 @@ class MainWindow(QMainWindow):
     def start_consumer(self):
         try:
             self.channel.start_consuming()
-        except: pass
+        finally:
+            self.channel.stop_consuming()
 
     def handle_message(self, channel, method, properties, body):
         try:
@@ -450,34 +449,33 @@ class MainWindow(QMainWindow):
     
     def release_station(self):
         try:
+            print('Releasing station...')
             self.channel.basic_publish(
                 exchange='digiturno_direct',
                 routing_key='server_command',
                 body=f'RELEASE_STATION:{self.station}',
                 properties=pika.BasicProperties(delivery_mode=2))
-        except: pass
+            print('Station released')
+        except Exception as e: print(f'releasing station got: {e}')
 
     def cleanup_connections(self):
-        if hasattr(self, 'channel') and self.channel.is_open:
-            try:
-                self.channel.queue_delete(queue=f'ack_queue_{self.id}')
-                self.channel.queue_delete(queue=f'broadcast_queue_{client.id}')
-            except: pass
-            try:
-                self.channel.stop_consuming()
-                time.sleep(0.5)
-                self.rabbitmqThread.join(timeout=1.0)
-                self.channel.close()
-            except: pass
-        if hasattr(self, 'connection') and self.connection.is_open:
-            try: self.connection.close()
-            except: pass
+        print('Closing connections...')
+        try: self.channel.stop_consuming()
+        except: print('Couldn\'t stop consuming (addiction :c)')
+        self.rabbitmqThread.join()
+        print('Connections closed')
 
     def closeEvent(self, event):
+        print('Executing client\'s closeEvent...')
         if not self.loggedOut:
+            print('Condition met')
             self.release_station()
             self.cleanup_connections()
+            print('Closing client...')
+            os._exit(0)
+        print('Closing client...')
         super().closeEvent(event)
+        print('Client closed')
 
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
@@ -523,18 +521,6 @@ class LoginDialog(QDialog):
             self.name = name
             self.station = station
             self.accept()
-        
-    def closeEvent(self, event):
-        client.release_station()
-        if client and hasattr(client, 'channel'):
-            try:
-                client.channel.queue_delete(queue=f'ack_queue_{client.id}')
-                client.channel.queue_delete(queue=f'broadcast_queue_{client.id}')
-            except: pass
-        try: client.rabbitmqThread.join(timeout=1)
-        except: pass
-        super().closeEvent(event)
-        os._exit(0)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

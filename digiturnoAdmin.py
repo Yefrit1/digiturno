@@ -273,13 +273,6 @@ class MainWindow(QMainWindow):
         if self.dialog.exec_() == QDialog.Accepted:
             self.current_user = self.dialog.userID
         elif not self.current_user: self.close()
-        
-    def log_out(self):
-        self.close()
-        self.current_user = None
-        self.show_login()
-        if self.current_user:
-            self.show()
 
     def set_background_color(self, widget, color):
         palette = widget.palette()
@@ -426,6 +419,15 @@ class MainWindow(QMainWindow):
         except:
             logging.exception('Exception requesting user deletion')
             traceback.print_exc()
+    
+    def closeEvent(self, event):
+        print('Attempt to stop consuming...')
+        try: self.channel.stop_consuming()
+        except: print('Addiction too strong :c')
+        print('Joining thread...')
+        self.rabbitmq_thread.join()
+        print('Thread joined')
+        super().closeEvent(event)
 
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
@@ -468,7 +470,12 @@ class LoginDialog(QDialog):
         else: QMessageBox.warning(self, "Error", "Credenciales inválidas")
     
     def closeEvent(self, event):
+        print('Attempt to stop consuming...')
+        try: client.channel.stop_consuming()
+        except: print('Addiction too strong :c')
+        print('Joining thread...')
         client.rabbitmq_thread.join()
+        print('Thread joined')
         os._exit(0)
 
 if __name__ == "__main__":

@@ -192,6 +192,11 @@ class Reporter:
             print("[!] Failed to upload to B2")
             traceback.print_exc()
             return None
+    
+    def closeEvent(self, event):
+        try: self.channel.stop_consuming()
+        except: print('Couldn\'t stop consuming')
+        super().closeEvent(event)
 
 if __name__ == "__main__":
     try:

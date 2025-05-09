@@ -3,6 +3,7 @@
 __pycache__/
 reports/
 exes/
+dep/
 *.pyc
 client.py
 .env

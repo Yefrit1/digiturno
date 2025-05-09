@@ -650,22 +650,10 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Clean up on window close"""
-        if hasattr(self, 'channel') and self.channel.is_open:
-            try:
-                self.channel.stop_consuming()
-                time.sleep(0.5)
-            except: pass
-        if hasattr(self, 'rabbitmq_thread') and self.rabbitmq_thread.is_alive():
-            try: self.rabbitmq_thread.join(timeout=1.0)
-            except: pass
-        if hasattr(self, 'channel') and self.channel.is_open:
-            try: self.channel.close()
-            except: pass
-        if hasattr(self, 'connection') and self.connection.is_open:
-            try: self.connection.close()
-            except: pass
+        try: self.channel.stop_consuming()
+        except: pass
+        self.rabbitmq_thread.join()
         super().closeEvent(event)
-        QApplication.quit()
     
 if __name__ == "__main__":
     app = QApplication(sys.argv)
