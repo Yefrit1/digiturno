@@ -1,8 +1,14 @@
-import sys, os, pika, json, traceback, threading, csv
+import sys, os, pika, json, traceback, threading, csv, logging
+from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
+handler = RotatingFileHandler('digiturnoReportes.log', maxBytes=500000, backupCount=3)
+logging.basicConfig(
+    filename='digiturnoReportes.log',
+    level=logging.ERROR,
+    format='%(asctime)s [%(levelname)s] %(message)s')
 load_dotenv()
 
 class MainWindow(QMainWindow):
@@ -244,12 +250,12 @@ class MainWindow(QMainWindow):
             port=int(os.getenv('PORT')),
             credentials=credentials)
         try:
-            print('[~] Attempting to connect via public IP...')
-            self.connection = pika.BlockingConnection(parametersPublic)
+            print('[~] Attempting to connect via local IP...')
+            self.connection = pika.BlockingConnection(parametersLocal)
             print('[✓] Connected successfully.')
         except pika.exceptions.AMQPConnectionError:
-            print('[!] Failed to connect via public IP.\n\n[~] Attempting to connect via local IP...')
-            self.connection = pika.BlockingConnection(parametersLocal)
+            print('[!] Failed to connect via local IP\n\n[~] Attempting to connect via public IP...')
+            self.connection = pika.BlockingConnection(parametersPublic)
             print('[✓] Connected successfully.')
         except: traceback.print_exc()
         

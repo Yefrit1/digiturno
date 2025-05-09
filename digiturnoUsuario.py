@@ -1,13 +1,13 @@
-import sys, traceback, pika, threading, json, os, logging
+import sys, traceback, pika, threading, json, os, logging, time
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 load_dotenv()
-handler = RotatingFileHandler('digiturnoPantalla.log', maxBytes=500000, backupCount=3)
+handler = RotatingFileHandler('digiturnoUsuario.log', maxBytes=500000, backupCount=3)
 logging.basicConfig(
-    filename='digiturnoPantalla.log',
+    filename='digiturnoUsuario.log',
     level=logging.ERROR,
     format='%(asctime)s [%(levelname)s] %(message)s')
 
@@ -40,7 +40,7 @@ class MainWindow(QMainWindow):
         self.cedHbox1 = QHBoxLayout()
         self.cedHbox1.setContentsMargins(0, 0, 0, self.screen_height(1))
 
-        labelCedula = QLabel("Bienvenido<Br>Ingrese su cédula")
+        labelCedula = QLabel("Bienvenido a Coohem<Br>Ingrese su cédula")
         self.style_label(labelCedula, 4)
 
         self.add_logo(self.cedHbox1)
@@ -379,7 +379,6 @@ class MainWindow(QMainWindow):
             case 'Asesoría':
                 servicio = 'AS'
                 turnNumber = self.queue[servicio][-1]+1
-                print(f"New turn: {turnNumber}")
                 self.queue[servicio].append(turnNumber)
                 self.turno.setText(f"{servicio}-{turnNumber}")
             case 'Caja':
@@ -652,16 +651,21 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """Clean up on window close"""
         if hasattr(self, 'channel') and self.channel.is_open:
+            try:
+                self.channel.stop_consuming()
+                time.sleep(0.5)
+            except: pass
+        if hasattr(self, 'rabbitmq_thread') and self.rabbitmq_thread.is_alive():
+            try: self.rabbitmq_thread.join(timeout=1.0)
+            except: pass
+        if hasattr(self, 'channel') and self.channel.is_open:
             try: self.channel.close()
             except: pass
         if hasattr(self, 'connection') and self.connection.is_open:
             try: self.connection.close()
             except: pass
-        if hasattr(self, 'rabbitmq_thread') and self.rabbitmq_thread.is_alive():
-            try: self.rabbitmq_thread.join(timeout=1.0)
-            except: pass
         super().closeEvent(event)
-        os._exit(0)
+        QApplication.quit()
     
 if __name__ == "__main__":
     app = QApplication(sys.argv)

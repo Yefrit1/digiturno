@@ -1,11 +1,13 @@
 import pika, json, os, sqlite3, traceback, csv, sys, logging
+from logging.handlers import RotatingFileHandler
 from b2sdk.v2 import B2Api, InMemoryAccountInfo
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 db_path = 'digiturno.db'
+handler = RotatingFileHandler('reporter.log', maxBytes=500000, backupCount=3)
 logging.basicConfig(
     filename='reporter.log',
-    level=logging.INFO,
+    level=logging.ERROR,
     format='%(asctime)s [%(levelname)s] %(message)s')
 load_dotenv()
 

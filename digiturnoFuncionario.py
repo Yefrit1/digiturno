@@ -5,9 +5,9 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 load_dotenv()
-handler = RotatingFileHandler('digiturnoPantalla.log', maxBytes=500000, backupCount=3)
+handler = RotatingFileHandler('digiturnoFuncionario.log', maxBytes=500000, backupCount=3)
 logging.basicConfig(
-    filename='digiturnoPantalla.log',
+    filename='digiturnoFuncionario.log',
     level=logging.ERROR,
     format='%(asctime)s [%(levelname)s] %(message)s')
 
@@ -458,13 +458,18 @@ class MainWindow(QMainWindow):
         except: pass
 
     def cleanup_connections(self):
-        if self.channel and self.channel.is_open:
+        if hasattr(self, 'channel') and self.channel.is_open:
             try:
                 self.channel.queue_delete(queue=f'ack_queue_{self.id}')
                 self.channel.queue_delete(queue=f'broadcast_queue_{client.id}')
+            except: pass
+            try:
+                self.channel.stop_consuming()
+                time.sleep(0.5)
+                self.rabbitmqThread.join(timeout=1.0)
                 self.channel.close()
             except: pass
-        if self.connection and self.connection.is_open:
+        if hasattr(self, 'connection') and self.connection.is_open:
             try: self.connection.close()
             except: pass
 
@@ -472,7 +477,6 @@ class MainWindow(QMainWindow):
         if not self.loggedOut:
             self.release_station()
             self.cleanup_connections()
-            self.rabbitmqThread.join(timeout=1.0)
         super().closeEvent(event)
 
 class LoginDialog(QDialog):
@@ -521,8 +525,7 @@ class LoginDialog(QDialog):
             self.accept()
         
     def closeEvent(self, event):
-        try: client.release_station()
-        except: pass
+        client.release_station()
         if client and hasattr(client, 'channel'):
             try:
                 client.channel.queue_delete(queue=f'ack_queue_{client.id}')

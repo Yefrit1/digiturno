@@ -1,4 +1,4 @@
-import sys, traceback, sqlite3, threading, pika, json, os, logging
+import sys, traceback, sqlite3, threading, pika, json, os, logging, time
 from dotenv import load_dotenv
 from datetime import datetime
 from PyQt5.QtWidgets import *
@@ -8,7 +8,7 @@ db_path = 'digiturno.db'
 load_dotenv()
 logging.basicConfig(
     filename='digiturnoPantalla.log',
-    level=logging.INFO,
+    level=logging.ERROR,
     format='%(asctime)s [%(levelname)s] %(message)s')
 
 class TurnAlert(QLabel):
@@ -62,6 +62,7 @@ class Digiturno(QMainWindow):
         super().__init__()
         self.setWindowTitle("Digiturno")
         self.commandLock = threading.Lock()
+        self.channelLock = threading.Lock()
         self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
         self.stations = {}
         """Keys: estacion (Str): Station name (Caja 1...)
@@ -140,7 +141,7 @@ class Digiturno(QMainWindow):
             self.screen_width(3), self.screen_height(5),
             self.screen_width(3), 0)
         # HBox for waiting
-        self.waitLayout = QHBoxLayout()
+        '''self.waitLayout = QHBoxLayout()
         self.waitLayout.setContentsMargins(
             self.screen_width(3), 0,
             self.screen_width(3), self.screen_height(4))
@@ -153,7 +154,7 @@ class Digiturno(QMainWindow):
 
         labelQueue = QLabel("En cola:")
         self.style_header(labelQueue)
-        self.waitHeader.addWidget(labelQueue)
+        self.waitHeader.addWidget(labelQueue)'''
         # Turn display box
         self.turnAlert = TurnAlert(self)
         self.position_turn_alert()
@@ -164,7 +165,7 @@ class Digiturno(QMainWindow):
         self.update_clock()
         # Add grids to vertical layout
         verticalLayout.addLayout(self.gridLayout)
-        verticalLayout.addLayout(self.waitLayout)
+        #verticalLayout.addLayout(self.waitLayout)
 
     def handle_command(self, command):
         """Process incoming commands recieved via signal"""
@@ -405,12 +406,12 @@ class Digiturno(QMainWindow):
     
     def update_waiting(self):
         """Update displayed turns in queue"""
-        self.clear_waitLabels()
+        #self.clear_waitLabels()
         counter = 0
         for servicio, numero in self.orderedQueue:
             if counter < 5:
                 nombre = self.queueNames.get(f'{servicio}-{numero}', "NA")
-                turn = QLabel()
+                '''turn = QLabel()
                 self.style_label(turn)
                 turn.setText(f"""
                     <div style='text-align: center; line-height: 0.9;'>
@@ -418,7 +419,7 @@ class Digiturno(QMainWindow):
                         <div style='font-size: {self.screen_width(1.6)}px; font-weight: normal;'>{nombre}</div>
                     </div>""")
                 turn.setFixedWidth(self.screen_width(13))
-                self.waitLabels.addWidget(turn)
+                self.waitLabels.addWidget(turn)'''
             else: print("No more space for waiting labels")
             counter += 1
     
@@ -610,25 +611,6 @@ class Digiturno(QMainWindow):
             print(f"Error creating DB: {e}")
             self.conn.rollback()
         try:
-            # Create funcionarios
-            """self.cursor.execute('''
-                INSERT OR IGNORE INTO funcionarios (identificacion, nombre, usuario, contrasena)
-                VALUES ('CC2132', 'funcionario1', 'funcionario1', 'pass'), ('CC3215', 'funcionario2', 'funcionario2', 'pass'),
-                    ('CC4896', 'funcionario3', 'funcionario3', 'pass'), ('CC9525', 'funcionario4', 'funcionario4', 'pass'),
-                    ('CC1962', 'funcionario5', 'funcionario5', 'pass'), ('CC1052', 'funcionario6', 'funcionario6', 'pass'),
-                    ('CC1524', 'funcionario7', 'funcionario7', 'pass'), ('CC8513', 'funcionario8', 'funcionario8', 'pass'),
-                    ('CC4198', 'funcionario9', 'funcionario9', 'pass')
-            ''')"""
-            """self.cursor.execute('''
-                INSERT OR IGNORE INTO estaciones (nombre)
-                VALUES ('Estación 1'), ('Estación 2'), ('Estación 3'), ('Estación 4'), ('Estación 5'),
-                ('Estación 6'), ('Estación 7'), ('Estación 8'), ('Estación 9')
-            ''')"""
-            # Create control de fecha
-            """self.cursor.execute('''
-                INSERT OR IGNORE INTO control_fecha (id, last_reset)
-                VALUES (1, '2024-01-01')
-            ''')"""
             # Check for daily reset
             today = datetime.now().strftime("%Y-%m-%d")
             self.cursor.execute('''
@@ -724,22 +706,24 @@ class Digiturno(QMainWindow):
         servicio (Str): Service type
         numero (int): Turn number
         nombre (Str): Customer name"""
-        self.channel.basic_publish(
-            exchange='ack_exchange',
-            routing_key=str(rk),
-            body=f'ACK_NEXT_TURN:{servicio}-{numero}:{nombre}',
-            properties=pika.BasicProperties(delivery_mode=2))
+        with self.channelLock:
+            self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key=str(rk),
+                body=f'ACK_NEXT_TURN:{servicio}-{numero}:{nombre}',
+                properties=pika.BasicProperties(delivery_mode=2))
         print(f"Ack sent: RK:{rk}, turn:{servicio}-{numero}, name:{nombre}")
     
     def ack_cancel_turn(self, rk):
         """Send direct acknowledgement to funcionario after canceling turn
         rk (Str): Routing key to trace back funcionario"""
         try:
-            self.channel.basic_publish(
-                exchange='ack_exchange',
-                routing_key=str(rk),
-                body=f'ACK_CANCEL_TURN',
-                properties=pika.BasicProperties(delivery_mode=2))
+            with self.channelLock:
+                self.channel.basic_publish(
+                    exchange='ack_exchange',
+                    routing_key=str(rk),
+                    body=f'ACK_CANCEL_TURN',
+                    properties=pika.BasicProperties(delivery_mode=2))
             print(f'Ack for turn cancel sent to {rk}')
         except:
             logging.exception('Exception on ack_cancel_turn method')
@@ -749,11 +733,12 @@ class Digiturno(QMainWindow):
         """Send direct acknowledgement to funcionario after completing current turn
         rk (Str): Routing key to trace back funcionario"""
         try:
-            self.channel.basic_publish(
-                exchange='ack_exchange',
-                routing_key=str(rk),
-                body=f'ACK_COMPLETE_TURN',
-                properties=pika.BasicProperties(delivery_mode=2))
+            with self.channelLock:
+                self.channel.basic_publish(
+                    exchange='ack_exchange',
+                    routing_key=str(rk),
+                    body=f'ACK_COMPLETE_TURN',
+                    properties=pika.BasicProperties(delivery_mode=2))
             print(f'Ack for turn complete sent to {rk}')
         except:
             logging.exception('Exception on ack_complete_turn method')
@@ -765,11 +750,12 @@ class Digiturno(QMainWindow):
         queue = {}
         for service, numbers in self.queue.items(): # Merge turn info from self.queue and self.queueNames
             queue[service] = [(num, self.queueNames[f"{service}-{num}"]) for num in numbers]
-        self.channel.basic_publish(
-            exchange='ack_exchange',
-            routing_key=str(rk),
-            body=json.dumps(queue),
-            properties=pika.BasicProperties(delivery_mode=2))
+        with self.channelLock:
+            self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key=str(rk),
+                body=json.dumps(queue),
+                properties=pika.BasicProperties(delivery_mode=2))
         print("Ack sent with queue")
         print(queue)
     
@@ -777,12 +763,15 @@ class Digiturno(QMainWindow):
         """Send direct acknowledgement to funcionario with stations available
         rk (Str): Routing key to trace back funcionario"""
         stations = [name for name, user in self.stations.items() if user is None]
+        msgBody = f'ACK_STATIONS_REQUEST:{json.dumps(stations)}'
         try:
-            self.channel.basic_publish(
-            exchange='ack_exchange',
-            routing_key=str(rk),
-            body=f'ACK_STATIONS_REQUEST:{json.dumps(stations)}',
-            properties=pika.BasicProperties(delivery_mode=2))
+            with self.channelLock:
+                print(f'Sending msg with stations:\n{stations}')
+                self.channel.basic_publish(
+                    exchange='ack_exchange',
+                    routing_key=str(rk),
+                    body=f'ACK_STATIONS_REQUEST:{json.dumps(stations)}',
+                    properties=pika.BasicProperties(delivery_mode=2))
         except:
             logging.exception('Exception on ack_stations_request method')
             traceback.print_exc()
@@ -814,11 +803,12 @@ class Digiturno(QMainWindow):
                     else: userID = nombre = station = 'STATION_BUSY'
                 else: userID = nombre = station = 'NO_ACCESS' # If credentials are valid but user is blocked
             else: userID = nombre = station = 'NOT_FOUND' # If credentials don't match any user
-        self.channel.basic_publish(
-            exchange='ack_exchange',
-            routing_key=str(rk),
-            body=f'ACK_LOGIN_REQUEST:{userID}:{nombre}:{station}',
-            properties=pika.BasicProperties(delivery_mode=2))
+        with self.channelLock:
+            self.channel.basic_publish(
+                exchange='ack_exchange',
+                routing_key=str(rk),
+                body=f'ACK_LOGIN_REQUEST:{userID}:{nombre}:{station}',
+                properties=pika.BasicProperties(delivery_mode=2))
         print(f"login request ack sent, user ID: {userID}, routing key: {rk}")
     
     def ack_admin_login_request(self, username, password):
@@ -841,11 +831,12 @@ class Digiturno(QMainWindow):
             else: funID = 'NO_ACCESS'
         else: funID = 'NOT_FOUND'
         try:
-            self.channel.basic_publish(
-                exchange='ack_exchange',
-                routing_key='admin',
-                body=f'ACK_LOGIN_REQUEST:{funID}:{isAdm}',
-                properties=pika.BasicProperties(delivery_mode=2))
+            with self.channelLock:
+                self.channel.basic_publish(
+                    exchange='ack_exchange',
+                    routing_key='admin',
+                    body=f'ACK_LOGIN_REQUEST:{funID}:{isAdm}',
+                    properties=pika.BasicProperties(delivery_mode=2))
             print(f'Admin login ack sent\nfunID: {funID} , isAdm: {isAdm}')
         except:
             logging.exception('Exception on ack_admin_login_request method')
@@ -867,11 +858,12 @@ class Digiturno(QMainWindow):
                 nom = 'NULL'
                 asc = 0
         try:
-            self.channel.basic_publish(
-                exchange='ack_exchange',
-                routing_key='user',
-                body=f'ACK_CUSTOMER_ID_CHECK:{reg}:{nom}:{asc}',
-                properties=pika.BasicProperties(delivery_mode=2))
+            with self.channelLock:
+                self.channel.basic_publish(
+                    exchange='ack_exchange',
+                    routing_key='user',
+                    body=f'ACK_CUSTOMER_ID_CHECK:{reg}:{nom}:{asc}',
+                    properties=pika.BasicProperties(delivery_mode=2))
             print(f'Sent customer ID check acknowledgement\nregistered: {reg} , name: {nom} , asociado: {asc}') # Debug
         except:
             logging.exception('Exception on ack_customer_ID_check method')
@@ -888,11 +880,12 @@ class Digiturno(QMainWindow):
                 VALUES (?, ?, False)
             ''', (cedula, nombre))
         try:
-            self.channel.basic_publish(
-                exchange='ack_exchange',
-                routing_key='user',
-                body=f'ACK_NEW_CUSTOMER:{cedula}:{nombre}',
-                properties=pika.BasicProperties(delivery_mode=2))
+            with self.channelLock:
+                self.channel.basic_publish(
+                    exchange='ack_exchange',
+                    routing_key='user',
+                    body=f'ACK_NEW_CUSTOMER:{cedula}:{nombre}',
+                    properties=pika.BasicProperties(delivery_mode=2))
             print(f'New customer registered\nID: {cedula} , name: {nombre}')
         except:
             logging.exception('Exception on ack_new_customer method')
@@ -906,11 +899,12 @@ class Digiturno(QMainWindow):
             cursor.execute('SELECT servicio, MAX(numero) FROM turnos WHERE DATE(creado) = ? GROUP BY servicio', (fechaHoy,))
             result = cursor.fetchall()
         try:
-            self.channel.basic_publish(
-                exchange='ack_exchange',
-                routing_key='user',
-                body=json.dumps(result),
-                properties=pika.BasicProperties(delivery_mode=2))
+            with self.channelLock:
+                self.channel.basic_publish(
+                    exchange='ack_exchange',
+                    routing_key='user',
+                    body=json.dumps(result),
+                    properties=pika.BasicProperties(delivery_mode=2))
             print(f'Sent last turns:\n{result}')
         except:
             logging.exception('Exception on ack_last_turn_request method')
@@ -923,11 +917,12 @@ class Digiturno(QMainWindow):
             cursor.execute("SELECT id, nombre, identificacion, usuario, contrasena, rol, estado FROM funcionarios")
             users = cursor.fetchall()
         try:
-            self.channel.basic_publish(
-                exchange='ack_exchange',
-                routing_key='admin',
-                body=json.dumps(users),
-                properties=pika.BasicProperties(delivery_mode=2))
+            with self.channelLock:
+                self.channel.basic_publish(
+                    exchange='ack_exchange',
+                    routing_key='admin',
+                    body=json.dumps(users),
+                    properties=pika.BasicProperties(delivery_mode=2))
             print(f'Funcionarios list sent:\n{users}')
         except:
             logging.exception('Exception on ack_funcionarios_list method')
@@ -946,18 +941,20 @@ class Digiturno(QMainWindow):
                         UPDATE funcionarios SET nombre = ?, identificacion = ?, usuario = ?, contrasena = ?, rol = ?, estado = ?
                         WHERE id = ?
                     ''', (nombre, identificacion, usuario, contrasena, rol, estado, id_))
-            self.channel.basic_publish(
-                exchange='ack_exchange',
-                routing_key='admin',
-                body='ACK_FUNCIONARIOS_LIST_UPDATE:good',
-                properties=pika.BasicProperties(delivery_mode=2))
+            with self.channelLock:
+                self.channel.basic_publish(
+                    exchange='ack_exchange',
+                    routing_key='admin',
+                    body='ACK_FUNCIONARIOS_LIST_UPDATE:good',
+                    properties=pika.BasicProperties(delivery_mode=2))
             print(f'Funcionarios list updated')
         except Exception as e:
-            self.channel.basic_publish(
-                exchange='ack_exchange',
-                routing_key='admin',
-                body='ACK_FUNCIONARIOS_LIST_UPDATE:error',
-                properties=pika.BasicProperties(delivery_mode=2))
+            with self.channelLock:
+                self.channel.basic_publish(
+                    exchange='ack_exchange',
+                    routing_key='admin',
+                    body='ACK_FUNCIONARIOS_LIST_UPDATE:error',
+                    properties=pika.BasicProperties(delivery_mode=2))
             print(f'Funcionarios list not updated, error: {e}')
     
     def ack_new_funcionario(self):
@@ -971,21 +968,23 @@ class Digiturno(QMainWindow):
                 ''', (self.newFun[0], self.newFun[1], self.newFun[2], self.newFun[3], self.newFun[4], self.newFun[5]))
                 id_ = cursor.lastrowid
             try:
-                self.channel.basic_publish(
-                exchange='ack_exchange',
-                routing_key='admin',
-                body=f'ACK_NEW_FUNCIONARIO:good:{id_}:ignore',
-                properties=pika.BasicProperties(delivery_mode=2))
+                with self.channelLock:
+                    self.channel.basic_publish(
+                        exchange='ack_exchange',
+                        routing_key='admin',
+                        body=f'ACK_NEW_FUNCIONARIO:good:{id_}:ignore',
+                        properties=pika.BasicProperties(delivery_mode=2))
             except:
                 logging.exception('Exception on ack_new_funcionario method')
                 traceback.print_exc()
         except sqlite3.IntegrityError as e:
             try:
-                self.channel.basic_publish(
-                exchange='ack_exchange',
-                routing_key='admin',
-                body=f'ACK_NEW_FUNCIONARIO:error:{e}',
-                properties=pika.BasicProperties(delivery_mode=2))
+                with self.channelLock:
+                    self.channel.basic_publish(
+                        exchange='ack_exchange',
+                        routing_key='admin',
+                        body=f'ACK_NEW_FUNCIONARIO:error:{e}',
+                        properties=pika.BasicProperties(delivery_mode=2))
                 print(f'Error inserting new funcionario: {e}')
             except:
                 logging.exception('Exception on ack_new_funcionario method')
@@ -1001,11 +1000,12 @@ class Digiturno(QMainWindow):
                     cursor.execute('''
                         DELETE FROM funcionarios WHERE id = ?
                     ''', (int(id_),))
-            self.channel.basic_publish(
-                exchange='ack_exchange',
-                routing_key='admin',
-                body=f'ACK_DELETE_FUNCIONARIOS:{ids}',
-                properties=pika.BasicProperties(delivery_mode=2))
+            with self.channelLock:
+                self.channel.basic_publish(
+                    exchange='ack_exchange',
+                    routing_key='admin',
+                    body=f'ACK_DELETE_FUNCIONARIOS:{ids}',
+                    properties=pika.BasicProperties(delivery_mode=2))
             print(f'Deleted funcionarios with ids:\n{ids}')
         except:
             logging.exception('Exception on ack_delete_funcionario method')
@@ -1013,24 +1013,29 @@ class Digiturno(QMainWindow):
 
     def broadcast_update(self, message):
         """Send broadcast message with exchange 'digiturno_broadcast'. Sent to funcionarios"""
-        self.channel.basic_publish(
-            exchange='digiturno_broadcast',
-            routing_key='',
-            body=message)
+        with self.channelLock:
+            self.channel.basic_publish(
+                exchange='digiturno_broadcast',
+                routing_key='',
+                body=message)
     
     def closeEvent(self, event):
         """Clean up on window close"""
+        if hasattr(self, 'channel') and self.channel.is_open:
+            try:
+                self.channel.stop_consuming()
+                time.sleep(0.2)
+            except: pass
+        if hasattr(self, 'rabbitmq_thread') and self.rabbitmq_thread.is_alive():
+            try: self.rabbitmq_thread.join()
+            except: pass
         if hasattr(self, 'channel') and self.channel.is_open:
             try: self.channel.close()
             except: pass
         if hasattr(self, 'connection') and self.connection.is_open:
             try: self.connection.close()
             except: pass
-        if hasattr(self, 'rabbitmq_thread') and self.rabbitmq_thread.is_alive():
-            try: self.rabbitmq_thread.join(timeout=1.0)
-            except: pass
         super().closeEvent(event)
-        os._exit(0)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

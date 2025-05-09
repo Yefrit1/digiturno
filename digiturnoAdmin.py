@@ -1,10 +1,16 @@
-import sys, traceback, pika, json, threading, os
+import sys, traceback, pika, json, threading, os, logging
+from logging.handlers import RotatingFileHandler
 from PyQt5.QtGui import QCloseEvent
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 load_dotenv()
+handler = RotatingFileHandler('digiturnoAdmin.log', maxBytes=500000, backupCount=3)
+logging.basicConfig(
+    filename='digiturnoAdmin.log',
+    level=logging.ERROR,
+    format='%(asctime)s [%(levelname)s] %(message)s')
 
 class MainWindow(QMainWindow):
     commandSignal = pyqtSignal(str)
@@ -294,14 +300,16 @@ class MainWindow(QMainWindow):
             port=int(os.getenv('PORT')),
             credentials=credentials)
         try:
-            print('[~] Attempting to connect via public IP...')
-            self.connection = pika.BlockingConnection(parametersPublic)
-            print('[✓] Connected successfully.')
-        except pika.exceptions.AMQPConnectionError:
-            print('[!] Failed to connect via public IP.\n\n[~] Attempting to connect via local IP...')
+            print('[~] Attempting to connect via local IP...')
             self.connection = pika.BlockingConnection(parametersLocal)
             print('[✓] Connected successfully.')
-        except: traceback.print_exc()
+        except pika.exceptions.AMQPConnectionError:
+            print('[!] Failed to connect via local IP\n\n[~] Attempting to connect via public IP...')
+            self.connection = pika.BlockingConnection(parametersPublic)
+            print('[✓] Connected successfully.')
+        except:
+            logging.exception('Exception trying to connect to RabbitMQ')
+            traceback.print_exc()
         self.channel = self.connection.channel()
 
         self.channel.exchange_declare(
@@ -332,8 +340,9 @@ class MainWindow(QMainWindow):
         try:
             message = body.decode('utf-8')
             self.commandSignal.emit(message)
-        except Exception as e:
-            print(f"Error processing message: {e}")
+        except:
+            logging.exception('Exception handling msg')
+            traceback.print_exc()
     
     def handle_command(self, command):
         print(f"Handling command:\n{command}\n")
@@ -371,6 +380,7 @@ class MainWindow(QMainWindow):
                 body=f'ADMIN_LOGIN_REQUEST:{username}:{password}',
                 properties=pika.BasicProperties(delivery_mode=2))
         except:
+            logging.exception('Exception requesting verification')
             traceback.print_exc()
 
     def request_users_list(self):
@@ -380,7 +390,9 @@ class MainWindow(QMainWindow):
                 routing_key='server_command',
                 body=f'FUNCIONARIOS_LIST_REQUEST',
                 properties=pika.BasicProperties(delivery_mode=2))
-        except: traceback.print_exc()
+        except:
+            logging.exception('Exception requesting users list')
+            traceback.print_exc()
     
     def update_users_list(self):
         try:
@@ -389,7 +401,9 @@ class MainWindow(QMainWindow):
                 routing_key='server_command',
                 body=f'FUNCIONARIOS_LIST_UPDATE:{json.dumps(self.usersChanged)}',
                 properties=pika.BasicProperties(delivery_mode=2))
-        except: traceback.print_exc()
+        except:
+            logging.exception('Exception updating users list')
+            traceback.print_exc()
     
     def request_create_user(self):
         try:
@@ -398,7 +412,9 @@ class MainWindow(QMainWindow):
                 routing_key='server_command',
                 body=f'NEW_FUNCIONARIO:{json.dumps(self.newUser)}',
                 properties=pika.BasicProperties(delivery_mode=2))
-        except: traceback.print_exc()
+        except:
+            logging.exception('Exception creating new user request')
+            traceback.print_exc()
     
     def request_delete_users(self, ids):
         try:
@@ -407,7 +423,9 @@ class MainWindow(QMainWindow):
                 routing_key='server_command',
                 body=f'DELETE_FUNCIONARIOS:{json.dumps(ids)}',
                 properties=pika.BasicProperties(delivery_mode=2))
-        except: traceback.print_exc()
+        except:
+            logging.exception('Exception requesting user deletion')
+            traceback.print_exc()
 
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
@@ -450,7 +468,7 @@ class LoginDialog(QDialog):
         else: QMessageBox.warning(self, "Error", "Credenciales inválidas")
     
     def closeEvent(self, event):
-        client.rabbitmq_thread.join(timeout=1)
+        client.rabbitmq_thread.join()
         os._exit(0)
 
 if __name__ == "__main__":
