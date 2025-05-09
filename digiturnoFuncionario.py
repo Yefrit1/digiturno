@@ -370,7 +370,7 @@ class MainWindow(QMainWindow):
         try:
             self.channel.start_consuming()
         finally:
-            self.channel.stop_consuming()
+            self.connection.close()
 
     def handle_message(self, channel, method, properties, body):
         try:

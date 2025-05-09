@@ -763,14 +763,14 @@ class Digiturno(QMainWindow):
         """Send direct acknowledgement to funcionario with stations available
         rk (Str): Routing key to trace back funcionario"""
         stations = [name for name, user in self.stations.items() if user is None]
-        msgBody = f'ACK_STATIONS_REQUEST:{json.dumps(stations)}'
+        msgBody = f'ACK_STATIONS_REQUEST:{json.dumps(stations)}'.encode('utf-8')
         try:
             with self.channelLock:
                 print(f'Sending msg with stations:\n{stations}')
                 self.channel.basic_publish(
                     exchange='ack_exchange',
                     routing_key=str(rk),
-                    body=f'ACK_STATIONS_REQUEST:{json.dumps(stations)}',
+                    body=msgBody,
                     properties=pika.BasicProperties(delivery_mode=2))
         except:
             logging.exception('Exception on ack_stations_request method')
