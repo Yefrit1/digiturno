@@ -341,6 +341,7 @@ class UrlDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Reporte generado")
         self.setMinimumWidth(400)
+        self.setMaximumWidth(900)
 
         layout = QVBoxLayout()
 
