@@ -475,7 +475,8 @@ class MainWindow(QMainWindow):
         print('Closing connections...')
         try: self.channel.stop_consuming()
         except: print('Couldn\'t stop consuming (addiction :c)')
-        self.rabbitmqThread.join()
+        try: self.rabbitmqThread.join()
+        except: print('Couldn\'t join thread')
         print('Connections closed')
 
     def closeEvent(self, event):
