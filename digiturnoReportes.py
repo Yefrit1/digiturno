@@ -295,6 +295,10 @@ class MainWindow(QMainWindow):
                 self.filename = msg.get('filename')
                 self.load_report()
                 self.stackedWidget.setCurrentIndex(1)
+            case 'report_url':
+                url = msg.get('url')
+                dialog = UrlDialog(url, self)
+                dialog.exec_()
             case 'no_data_found':
                 QMessageBox.warning(self, "", "No se encontró información en la fecha especificada")
     
@@ -331,6 +335,32 @@ class MainWindow(QMainWindow):
         except: print('Couldn\'t stop consuming')
         self.rabbitmq_thread.join()
         super().closeEvent(event)
+
+class UrlDialog(QDialog):
+    def __init__(self, url, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Reporte generado")
+        self.setMinimumWidth(400)
+
+        layout = QVBoxLayout()
+
+        self.label = QLabel(f'<a href="{url}">{url}</a>')
+        self.label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.LinksAccessibleByMouse)
+        self.label.setOpenExternalLinks(True)
+        self.label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.label)
+        
+        btnBoxWidget = QWidget()
+        btnBox = QHBoxLayout(btnBoxWidget)
+        btnBoxWidget.setLayout(btnBox)
+
+        btnCopy = QPushButton("Copiar enlace")
+        btnCopy.setMaximumWidth(200)
+        btnCopy.clicked.connect(lambda: QApplication.clipboard().setText(url))
+        btnBox.addWidget(btnCopy)
+        layout.addWidget(btnBoxWidget)
+
+        self.setLayout(layout)
         
 if __name__ == "__main__":
     app = QApplication(sys.argv)

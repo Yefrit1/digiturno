@@ -13,7 +13,8 @@ load_dotenv()
 
 class Reporter:
     def __init__(self):
-        os.makedirs("reports", exist_ok=True)
+        try: os.makedirs("reports", exist_ok=True)
+        except: pass
         self.setup_rabbitmq()
         self.channel.basic_consume(
             queue='report_queue',
@@ -41,7 +42,7 @@ class Reporter:
                     self.channel.basic_publish(
                         exchange='',
                         routing_key=properties.reply_to,
-                        body=json.dumps({'command': 'pong'}))
+                        body=json.dumps({'command': 'pong'}).encode('utf-8'))
                 return
 
             if data.get('command') != 'generate_report':
@@ -57,7 +58,7 @@ class Reporter:
             if not rows:
                 print('[~] No data found for requested report.')
                 try:
-                    msgBody = json.dumps({'command': 'no_data_found'})
+                    msgBody = json.dumps({'command': 'no_data_found'}).encode('utf-8')
                     self.channel.basic_publish(
                         exchange='',
                         routing_key=properties.reply_to,
@@ -71,7 +72,7 @@ class Reporter:
                 msgBody = json.dumps({
                     'command': 'report',
                     'data': rows,
-                    'filename': filename})
+                    'filename': filename}).encode('utf-8')
                 if sys.getsizeof(msgBody)>=16777216:
                     self.save_and_upload(filename, rows, properties)
                 else:
@@ -166,11 +167,12 @@ class Reporter:
         print(f'[✓] Report saved to {filepath}')
         
         url = self.upload_to_b2(filepath, filename)
+        msgBody = json.dumps({'command': 'report_url', 'url': url}).encode('utf-8')
         if url and properties.reply_to:
             self.channel.basic_publish(
                 exchange='',
                 routing_key=properties.reply_to,
-                body=json.dumps({"url": url}).encode("utf-8"))
+                body=msgBody)
     
     def upload_to_b2(self, filepath, filename):
         try:
