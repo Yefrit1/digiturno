@@ -4,6 +4,7 @@ __pycache__/
 reports/
 exes/
 dep/
+.VSCodeCounter/
 *.pyc
 client.py
 .env
