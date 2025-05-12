@@ -311,13 +311,20 @@ class MainWindow(QMainWindow):
             self.close()
 
     def log_out(self):
-        time.sleep(0.1)
-        self.userID = None
-        self.labelTurno.setText("-")
-        self.loggedOut = True
-        self.release_station()
-        self.close()
-        self.show_login()
+        reply = QMessageBox.question(
+            self,
+            'Confirmar',
+            '¿Seguro que desea cerrar sesión?',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            time.sleep(0.1)
+            self.userID = None
+            self.labelTurno.setText("-")
+            self.loggedOut = True
+            self.release_station()
+            self.close()
+            self.show_login()
 
     def set_background_color(self, widget, color):
         palette = widget.palette()
@@ -375,10 +382,8 @@ class MainWindow(QMainWindow):
             auto_ack=True)
 
     def start_consumer(self):
-        try:
-            self.channel.start_consuming()
-        finally:
-            self.connection.close()
+        try: self.channel.start_consuming()
+        except: pass
 
     def handle_message(self, channel, method, properties, body):
         try:
@@ -445,20 +450,26 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
     
     def reassign_pressed(self):
-        if self.labelTurno != '':
-            print('')
-        QMessageBox.warning(self, ".", "reassign pressed.")
+        if self.labelTurno.text() != '-':
+            QMessageBox.warning(self, ".", "reassign pressed.")
 
     def cancel_current_turn(self):
-        try:
-            self.channel.basic_publish(
-                exchange='digiturno_direct',
-                routing_key='server_command',
-                body=f'CANCEL_TURN:{self.userID}:{self.id}')
-        except:
-            logging.exception('Exception canceling current turn')
-            traceback.print_exc()
-            self.setup_rabbitmq()
+        reply = QMessageBox.question(
+            self,
+            'Confirmar',
+            '¿Seguro que desea cancelar el turno?',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            try:
+                self.channel.basic_publish(
+                    exchange='digiturno_direct',
+                    routing_key='server_command',
+                    body=f'CANCEL_TURN:{self.userID}:{self.id}')
+            except:
+                logging.exception('Exception canceling current turn')
+                traceback.print_exc()
+                self.setup_rabbitmq()
     
     def release_station(self):
         try:
@@ -472,11 +483,12 @@ class MainWindow(QMainWindow):
         except Exception as e: print(f'releasing station got: {e}')
 
     def cleanup_connections(self):
+        """For some reason, when I try to safely close connections, stop consumer and join the thread, it throws an error on exit"""
         print('Closing connections...')
         try: self.channel.stop_consuming()
-        except: print('Couldn\'t stop consuming (addiction :c)')
+        except: pass
         try: self.rabbitmqThread.join()
-        except: print('Couldn\'t join thread')
+        except: pass
         print('Connections closed')
 
     def closeEvent(self, event):
@@ -484,7 +496,7 @@ class MainWindow(QMainWindow):
         if not self.loggedOut:
             print('Condition met')
             self.release_station()
-            self.cleanup_connections()
+            #self.cleanup_connections()
             print('Closing client...')
             os._exit(0)
         print('Closing client...')
