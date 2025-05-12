@@ -652,7 +652,8 @@ class MainWindow(QMainWindow):
         """Clean up on window close"""
         try: self.channel.stop_consuming()
         except: pass
-        self.rabbitmq_thread.join()
+        try: self.rabbitmq_thread.join()
+        except: pass
         super().closeEvent(event)
     
 if __name__ == "__main__":

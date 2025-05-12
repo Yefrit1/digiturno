@@ -74,6 +74,7 @@ class MainWindow(QMainWindow):
         self.style_button(buttonTerminado, 30)
         buttonTerminado.setFixedWidth(int(self.screenGeometry.width()/10))
         buttonTerminado.clicked.connect(self.complete_current_turn)
+        
 
         hBox2.addWidget(labelAtendiendo)
         self.add_spacer(hBox2)
@@ -121,18 +122,25 @@ class MainWindow(QMainWindow):
         buttonLogout = QPushButton("Cerrar sesión")
         self.style_button(buttonLogout, 25, "#C9671C")
         buttonLogout.clicked.connect(self.log_out)
+        
+        buttonReassign = QPushButton('Redirigir turno')
+        self.style_button(buttonReassign, 25, '#618cff')
+        buttonReassign.clicked.connect(self.reassign_pressed)
 
         buttonCancel = QPushButton("Cancelar turno")
         self.style_button(buttonCancel, 25, "#A01919")
         buttonCancel.clicked.connect(self.cancel_current_turn)
 
         buttonLogout.setMinimumSize(100, 75)
+        buttonReassign.setMinimumSize(100, 75)
         buttonCancel.setMinimumSize(100, 75)
         buttonLogout.setMaximumSize(200, 100)
+        buttonReassign.setMaximumSize(200, 100)
         buttonCancel.setMaximumSize(200, 100)
 
         hBox5.addWidget(buttonLogout)
         self.add_spacer(hBox5)
+        hBox5.addWidget(buttonReassign)
         hBox5.addWidget(buttonCancel)
 
         # Add layouts to main layout
@@ -435,6 +443,11 @@ class MainWindow(QMainWindow):
         except:
             logging.exception('Exception sending turn completion')
             traceback.print_exc()
+    
+    def reassign_pressed(self):
+        if self.labelTurno != '':
+            print('')
+        QMessageBox.warning(self, ".", "reassign pressed.")
 
     def cancel_current_turn(self):
         try:
