@@ -73,7 +73,7 @@ class Reporter:
                     'command': 'report',
                     'data': rows,
                     'filename': filename}).encode('utf-8')
-                if sys.getsizeof(msgBody)>=16777216:
+                if sys.getsizeof(msgBody)>=16773120:
                     self.save_and_upload(filename, rows, properties)
                 else:
                     try:
