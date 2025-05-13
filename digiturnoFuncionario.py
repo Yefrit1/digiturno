@@ -123,9 +123,9 @@ class MainWindow(QMainWindow):
         self.style_button(buttonLogout, 25, "#C9671C")
         buttonLogout.clicked.connect(self.log_out)
         
-        buttonReassign = QPushButton('Redirigir turno')
+        buttonReassign = QPushButton('Reasignar turno')
         self.style_button(buttonReassign, 25, '#618cff')
-        buttonReassign.clicked.connect(self.reassign_pressed)
+        buttonReassign.clicked.connect(self.reassign_turn)
 
         buttonCancel = QPushButton("Cancelar turno")
         self.style_button(buttonCancel, 25, "#A01919")
@@ -311,13 +311,15 @@ class MainWindow(QMainWindow):
             self.close()
 
     def log_out(self):
-        reply = QMessageBox.question(
-            self,
-            'Confirmar',
-            '¿Seguro que desea cerrar sesión?',
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No)
-        if reply == QMessageBox.Yes:
+        reply = QMessageBox(self)
+        reply.setWindowTitle('Cerrar sesión')
+        reply.setText('¿Seguro que desea cerrar sesión?')
+        reply.setIcon(QMessageBox.Icon.Question)
+        btnSi = reply.addButton('Sí', QMessageBox.ButtonRole.YesRole)
+        btnNo = reply.addButton('No', QMessageBox.ButtonRole.NoRole)
+        reply.setDefaultButton(btnNo)
+        reply.exec()
+        if reply.clickedButton() == btnSi:
             time.sleep(0.1)
             self.userID = None
             self.labelTurno.setText("-")
@@ -449,27 +451,48 @@ class MainWindow(QMainWindow):
             logging.exception('Exception sending turn completion')
             traceback.print_exc()
     
-    def reassign_pressed(self):
+    def reassign_turn(self):
         if self.labelTurno.text() != '-':
-            QMessageBox.warning(self, ".", "reassign pressed.")
+            selection = QMessageBox()
+            selection.setWindowTitle('Reasignar turno')
+            selection.setText('¿A qué servicio desea reasignar el turno?')
+            btnAsesoria = selection.addButton('Asesoría', QMessageBox.ButtonRole.AcceptRole)
+            btnCaja = selection.addButton('Caja', QMessageBox.ButtonRole.AcceptRole)
+            btnCobranza = selection.addButton('Cobranza', QMessageBox.ButtonRole.AcceptRole)
+            btnCartera = selection.addButton('Cartera', QMessageBox.ButtonRole.AcceptRole)
+            btnCancel = QPushButton()
+            selection.addButton(btnCancel, QMessageBox.ButtonRole.RejectRole)
+            btnCancel.hide()
+            selection.exec()
+            if selection.clickedButton() == btnAsesoria:
+                print('asesoria clicked')
+            elif selection.clickedButton() == btnCaja:
+                print('caja')
+            elif selection.clickedButton() == btnCobranza:
+                print('')
+            elif selection.clickedButton() == btnCartera:
+                print('fdas')
 
     def cancel_current_turn(self):
-        reply = QMessageBox.question(
-            self,
-            'Confirmar',
-            '¿Seguro que desea cancelar el turno?',
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            try:
-                self.channel.basic_publish(
-                    exchange='digiturno_direct',
-                    routing_key='server_command',
-                    body=f'CANCEL_TURN:{self.userID}:{self.id}')
-            except:
-                logging.exception('Exception canceling current turn')
-                traceback.print_exc()
-                self.setup_rabbitmq()
+        reply = QMessageBox(self)
+        reply.setWindowTitle('Cancelar turno')
+        reply.setText('¿Seguro que desea cancelar el turno?')
+        reply.setIcon(QMessageBox.Icon.Question)
+        btnSi = reply.addButton('Sí', QMessageBox.ButtonRole.YesRole)
+        btnNo = reply.addButton('No', QMessageBox.ButtonRole.NoRole)
+        reply.setDefaultButton(btnNo)
+        if self.labelTurno.text() != '-':
+            reply.exec()
+            if reply.clickedButton() == btnSi:
+                try:
+                    self.channel.basic_publish(
+                        exchange='digiturno_direct',
+                        routing_key='server_command',
+                        body=f'CANCEL_TURN:{self.userID}:{self.id}')
+                except:
+                    logging.exception('Exception canceling current turn')
+                    traceback.print_exc()
+                    self.setup_rabbitmq()
     
     def release_station(self):
         try:
