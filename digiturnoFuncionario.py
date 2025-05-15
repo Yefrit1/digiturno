@@ -1,6 +1,6 @@
 import sys, traceback, pika, time, json, uuid, threading, os, logging
-from PyQt5.QtGui import QCloseEvent
 from logging.handlers import RotatingFileHandler
+from dataclasses import dataclass
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
@@ -12,6 +12,24 @@ logging.basicConfig(
     level=logging.ERROR,
     format='%(asctime)s [%(levelname)s] %(message)s')
 
+@dataclass
+class Turn:
+    id: int
+    service: str
+    number: int
+    customer: str
+    
+    def to_dict(self):
+        return{
+            'id': self.id,
+            'service': self.service,
+            'number': self.number,
+            'customer': self.customer}
+    
+    @staticmethod
+    def from_dict(data: dict) -> 'Turn':
+        return Turn(**data)
+
 class MainWindow(QMainWindow):
     updateUIsignal = pyqtSignal(str)
     
@@ -19,10 +37,14 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.screenGeometry = QApplication.primaryScreen().geometry()
         self.db_path = "digiturno.db"
-        self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
+        self.queues = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
+        """keys: queue (Str)
+        elements: tuples:
+        turnID (int), service (Str), number (int), customer (Str)"""
         self.rows = [0, 0, 0, 0]
         self.id = uuid.uuid4()
         self.userID = None
+        self.currentTurnID = None
         self.connection = None
         self.channel = None
         self.init_ui()
@@ -150,9 +172,9 @@ class MainWindow(QMainWindow):
         layoutMain.addWidget(scrollArea)
         layoutMain.addLayout(hBox5)
 
-    def add_pending_turn(self, servicio, numero, nombre=None):
-        """Add turn to GUI. Does NOT add turn to self.queue"""
-        match servicio:
+    def add_pending_turn(self, turnID, service, number, queue, customer=None):
+        """Add turn to GUI. Does NOT add turn to self.queues"""
+        match queue:
             case 'AS': col = 0
             case 'CA': col = 1
             case 'CO': col = 2
@@ -165,13 +187,13 @@ class MainWindow(QMainWindow):
         turno = QWidget()
         turno.setMinimumWidth(int(self.screenGeometry.width()/20))
         turno.setMaximumSize(int(self.screenGeometry.width()/6), 100)
-        self.format_turn(turno, f"{servicio}-{numero}", f"{nombre}")
+        self.format_turn(turno, f"{service}-{number}", f"{customer}")
 
         llamar = QPushButton("Llamar")
         llamar.setMinimumWidth(70)
         llamar.setMaximumSize(90, 100)
         self.style_button(llamar, 20)
-        llamar.clicked.connect(lambda _, s=servicio, n=numero: self.call_next_turn(s, n))
+        llamar.clicked.connect(lambda _, t=turnID, q=queue: self.call_next_turn(t, q))
 
         self.add_spacer(gridHbox)
         gridHbox.addWidget(turno)
@@ -180,11 +202,18 @@ class MainWindow(QMainWindow):
         self.gridTurns.addWidget(gridWidget, self.rows[col], col)
         self.rows[col] += 1
 
-    def update_grid(self, serv=None, num=None, nom=None):
-        if serv:
-            tupleRemoving = (int(num), nom)
-            print(f"Removing {tupleRemoving}, type {type(tupleRemoving)}, from {serv}")
-            self.queue[serv].remove((int(num), nom))
+    def update_grid(self, turnID=None, queue=None):
+        if turnID:
+            for turn in self.queues[queue]:
+                if turn.id == int(turnID):
+                    turnRemoving = Turn(
+                        id=int(turnID),
+                        service=turn.service,
+                        number=turn.number,
+                        customer=turn.customer)
+                    break
+            print(f"Removing {turnRemoving} from {queue}")
+            self.queues[queue].remove(turnRemoving)
         self.clear_grid()
         self.grid_spacers()
         self.load_pending()
@@ -203,40 +232,52 @@ class MainWindow(QMainWindow):
             self.gridTurns.addItem(expanding_spacer, 0, i)
 
     def load_pending(self):
-        for servicio in self.queue:
-            for numero, nombre in self.queue[servicio]:
-                self.add_pending_turn(servicio, numero, nombre)
+        for queue, turns in self.queues.items():
+            for turn in turns:
+                self.add_pending_turn(turn.id, turn.service, turn.number, queue, turn.customer)
 
-    def update_called_turn(self, servicio, numero, nombre):
-        self.labelTurno.setText(f"{servicio}-{numero} . {nombre}")
+    def update_called_turn(self, turnID, queue):
+        print('Updating turn label')
+        for turn in self.queues[queue]:
+            print(f'Iterating over {turn}')
+            if turn.id == int(turnID):
+                print('Got ID match (line 242)')
+                service = turn.service
+                number = turn.number
+                customer = turn.customer
+                break
+        self.currentTurnID = int(turnID)
+        self.labelTurno.setText(f"{service}-{number} . {customer}")
 
     def handle_server_update(self, message):
         print(f"Handling message:\n{message}\n")
         try:
             if message.startswith("NEW_TURN:"):
-                _, turnInfo, nombre = message.split(':')
-                servicio, numero = turnInfo.split('-')
-                self.queue[servicio].append((int(numero), nombre))
-                self.add_pending_turn(servicio, numero, nombre)
+                _, turnID, turnInfo, queue, customer = message.split(':')
+                service, number = turnInfo.split('-')
+                self.queues[queue].append((turnID, service, int(number), customer))
+                self.add_pending_turn(turnID, service, number, queue, customer)
+            
             elif message.startswith("CALLED:"):
-                _, turnInfo, nombre = message.split(':')
-                servicio, numero = turnInfo.split('-')
-                print(f"Queue before called:\n{self.queue}\n")
-                self.update_grid(servicio, numero, nombre)
+                _, turnID, queue, user = message.split(':')
+                print(f"Queue before called:\n{self.queues}\n")
+                if int(user) == self.userID: self.update_called_turn(turnID, queue)
+                self.update_grid(turnID, queue)
+            
             elif message.startswith('ACK_STATIONS_REQUEST:'):
                 stations = json.loads(message[len('ACK_STATIONS_REQUEST:'):])
                 self.dialog.stationMenu.addItems(stations)
+            
             elif message.startswith("ACK_LOGIN_REQUEST:"):
-                _, userID, name, station = message.split(':')
-                self.dialog.verify_credentials(userID, name, station)
-            elif message.startswith('ACK_NEXT_TURN:'):
-                _, turnInfo, nombre = message.split(':')
-                servicio, numero = turnInfo.split('-')
-                self.update_called_turn(servicio, numero, nombre)
+                _, userID, userName, station = message.split(':')
+                self.dialog.verify_credentials(userID, userName, station)
+                
             elif message.startswith('ACK_CANCEL_TURN') or message.startswith('ACK_COMPLETE_TURN'):
+                self.currentTurnID = None
                 self.labelTurno.setText("-")
+            
             else:
-                self.queue = self.convert_lists_to_tuples(json.loads(message))
+                self.deserialize_queues(json.loads(message))
                 self.update_grid()
         except:
             logging.exception('Exception handling command')
@@ -285,9 +326,11 @@ class MainWindow(QMainWindow):
         if expanding:
             label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         layout.addWidget(label)
-
-    def convert_lists_to_tuples(self, dict):
-        return {key: [tuple(item) for item in value] for key, value in dict.items()}
+    
+    def deserialize_queues(self, queues:dict):
+        self.queues = {
+            queue:[Turn.from_dict(turn) for turn in turns]
+            for queue, turns in queues.items()}
 
     def screen_width(self, num):
         return int(self.screenGeometry.width()*num/100)
@@ -322,6 +365,7 @@ class MainWindow(QMainWindow):
         if reply.clickedButton() == btnSi:
             time.sleep(0.1)
             self.userID = None
+            self.currentTurnID = None
             self.labelTurno.setText("-")
             self.loggedOut = True
             self.release_station()
@@ -430,12 +474,12 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
             self.setup_rabbitmq()
 
-    def call_next_turn(self, servicio, numero):
+    def call_next_turn(self, turnID, queue):
         try:
             self.channel.basic_publish(
                 exchange='digiturno_direct',
                 routing_key='server_command',
-                body=f'NEXT_TURN:{self.userID}:{servicio}-{numero}:{self.station}:{self.id}')
+                body=f'NEXT_TURN:{self.userID}:{turnID}:{queue}:{self.station}:{self.id}')
         except:
             logging.exception('Exception calling next turn')
             traceback.print_exc()
@@ -446,13 +490,13 @@ class MainWindow(QMainWindow):
             self.channel.basic_publish(
                 exchange='digiturno_direct',
                 routing_key='server_command',
-                body=f'COMPLETE_TURN:{self.userID}:{self.id}')
+                body=f'COMPLETE_TURN:{self.station}:{self.id}')
         except:
             logging.exception('Exception sending turn completion')
             traceback.print_exc()
     
     def reassign_turn(self):
-        if self.labelTurno.text() != '-':
+        if self.currentTurnID:
             selection = QMessageBox()
             selection.setWindowTitle('Reasignar turno')
             selection.setText('¿A qué servicio desea reasignar el turno?')
@@ -474,21 +518,21 @@ class MainWindow(QMainWindow):
                 print('fdas')
 
     def cancel_current_turn(self):
-        reply = QMessageBox(self)
-        reply.setWindowTitle('Cancelar turno')
-        reply.setText('¿Seguro que desea cancelar el turno?')
-        reply.setIcon(QMessageBox.Icon.Question)
-        btnSi = reply.addButton('Sí', QMessageBox.ButtonRole.YesRole)
-        btnNo = reply.addButton('No', QMessageBox.ButtonRole.NoRole)
-        reply.setDefaultButton(btnNo)
-        if self.labelTurno.text() != '-':
+        if self.currentTurnID:
+            reply = QMessageBox(self)
+            reply.setWindowTitle('Cancelar turno')
+            reply.setText('¿Seguro que desea cancelar el turno?')
+            reply.setIcon(QMessageBox.Icon.Question)
+            btnSi = reply.addButton('Sí', QMessageBox.ButtonRole.YesRole)
+            btnNo = reply.addButton('No', QMessageBox.ButtonRole.NoRole)
+            reply.setDefaultButton(btnNo)
             reply.exec()
             if reply.clickedButton() == btnSi:
                 try:
                     self.channel.basic_publish(
                         exchange='digiturno_direct',
                         routing_key='server_command',
-                        body=f'CANCEL_TURN:{self.userID}:{self.id}')
+                        body=f'CANCEL_TURN:{self.currentTurnID}:{self.station}:{self.userID}:{self.id}')
                 except:
                     logging.exception('Exception canceling current turn')
                     traceback.print_exc()
@@ -553,10 +597,10 @@ class LoginDialog(QDialog):
         self.setLayout(self.layout)
 
     def request_verification_dialog(self):
-        if self.username.text() != "" and self.password.text() != "":
+        if self.username.text() != "" and self.password.text() != "" and self.stationMenu.currentText() != "":
             client.request_verification(self.username.text(), self.password.text(), self.stationMenu.currentText())
         else:
-            QMessageBox.warning(self, "Error", "Llene ambos campos.")
+            QMessageBox.warning(self, "Error", "Llene todos los campos.")
 
     def verify_credentials(self, userID, name, station):
         if userID == 'NOT_FOUND':
