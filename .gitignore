@@ -8,4 +8,4 @@ dep/
 *.pyc
 client.py
 .env
-.png
+*.png
