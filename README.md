@@ -14,7 +14,29 @@
 - Turn .py into .exe: Run cmd with the following for each .py file:
   pyinstaller --onefile --noconsole file_name.py
 
-## .env structure
+## Usage
+- Run digiturnoPantalla on the 'server' device, where the DB will be stored.
+- Run reporter in the background, that way report generation will be available all the time the server is on.
+- Run digiturnoUsuario on some touch-screen device for the customers to use.
+- Run digiturnoFuncionario on the staff's devices to manage turns.
+- Run digiturnoAdmin on any device inside the server's network (or remotely, if firewall settings properly setup) to manage staff accounts.
+- Run digiturnoReportes, same network logic as digiturnoAdmin, to get a turns information report for a certain date.
+
+## Assets Setup
+
+The following programs require these image files in the same directory:
+- digiturnoPantalla:
+  - `logoCoohem.png` (Organization logo)
+- digiturnoUsuario:
+  - `logoCoohem.png` (Organization logo)
+  - `ok.png`
+  - `delete.png`
+  - `exit.png`
+  - `clear.png`
+  - `return.png`
+
+Additionally, all programs require the .env file with the following structure:
+
 RABBITMQ_USER=YOUR_USER
 RABBITMQ_PASS=YOUR_PASSWORD
 LOCAL_IP=NETWORK_LOCAL_IP
@@ -23,11 +45,3 @@ PORT=5672 (default RabbitMQ port, change if needed)
 B2_KEY_ID=BACKBLAZE_KEY_ID
 B2_APP_KEY=BACKBLAZE_APP_KEY
 B2_BUCKET=BACKBKLAZE_BUCKET_NAME
-
-## Usage
-- Run digiturnoPantalla on the 'server' device, where the DB will be stored.
-- Run reporter in the background, that way report generation will be available all the time the server is on.
-- Run digiturnoUsuario on some touch-screen device for the customers to use.
-- Run digiturnoFuncionario on the staff's devices to manage turns.
-- Run digiturnoAdmin on any device inside the server's network (or remotely, if firewall settings properly setup) to manage staff accounts.
-- Run digiturnoReportes, same network logic as digiturnoAdmin, to get a turns information report for a certain date.
