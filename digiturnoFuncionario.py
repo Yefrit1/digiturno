@@ -147,7 +147,7 @@ class MainWindow(QMainWindow):
         
         buttonReassign = QPushButton('Reasignar turno')
         self.style_button(buttonReassign, 25, '#618cff')
-        buttonReassign.clicked.connect(self.reassign_turn)
+        buttonReassign.clicked.connect(self.reassign_pressed)
 
         buttonCancel = QPushButton("Cancelar turno")
         self.style_button(buttonCancel, 25, "#A01919")
@@ -202,18 +202,7 @@ class MainWindow(QMainWindow):
         self.gridTurns.addWidget(gridWidget, self.rows[col], col)
         self.rows[col] += 1
 
-    def update_grid(self, turnID=None, queue=None):
-        if turnID:
-            for turn in self.queues[queue]:
-                if turn.id == int(turnID):
-                    turnRemoving = Turn(
-                        id=int(turnID),
-                        service=turn.service,
-                        number=turn.number,
-                        customer=turn.customer)
-                    break
-            print(f"Removing {turnRemoving} from {queue}")
-            self.queues[queue].remove(turnRemoving)
+    def update_grid(self):
         self.clear_grid()
         self.grid_spacers()
         self.load_pending()
@@ -235,6 +224,18 @@ class MainWindow(QMainWindow):
         for queue, turns in self.queues.items():
             for turn in turns:
                 self.add_pending_turn(turn.id, turn.service, turn.number, queue, turn.customer)
+    
+    def remove_turn(self, turnID, queue):
+        for turn in self.queues[queue]:
+            if turn.id == int(turnID):
+                turnRemoving = Turn(
+                    id=int(turnID),
+                    service=turn.service,
+                    number=turn.number,
+                    customer=turn.customer)
+                break
+        print(f"Removing {turnRemoving} from {queue}")
+        self.queues[queue].remove(turnRemoving)
 
     def update_called_turn(self, turnID, queue):
         print('Updating turn label')
@@ -255,14 +256,19 @@ class MainWindow(QMainWindow):
             if message.startswith("NEW_TURN:"):
                 _, turnID, turnInfo, queue, customer = message.split(':')
                 service, number = turnInfo.split('-')
-                self.queues[queue].append((turnID, service, int(number), customer))
+                self.queues[queue].append(Turn(
+                    id=int(turnID),
+                    service=service,
+                    number=int(number),
+                    customer=customer))
                 self.add_pending_turn(turnID, service, number, queue, customer)
             
             elif message.startswith("CALLED:"):
                 _, turnID, queue, user = message.split(':')
                 print(f"Queue before called:\n{self.queues}\n")
                 if int(user) == self.userID: self.update_called_turn(turnID, queue)
-                self.update_grid(turnID, queue)
+                self.remove_turn(turnID, queue)
+                self.update_grid()
             
             elif message.startswith('ACK_STATIONS_REQUEST:'):
                 stations = json.loads(message[len('ACK_STATIONS_REQUEST:'):])
@@ -272,6 +278,19 @@ class MainWindow(QMainWindow):
                 _, userID, userName, station = message.split(':')
                 self.dialog.verify_credentials(userID, userName, station)
                 
+            elif message.startswith('ACK_REASSIGN_TURN:'):
+                _, turnID, turnInfo, queue, customer, rk = message.split(':')
+                service, number = turnInfo.split('-')
+                self.queues[queue].append(Turn(
+                    id=int(turnID),
+                    service=service,
+                    number=int(number),
+                    customer=customer))
+                self.add_pending_turn(turnID, service, number, queue, customer)
+                if rk == str(self.id):
+                    self.currentTurnID = None
+                    self.labelTurno.setText('-')
+            
             elif message.startswith('ACK_CANCEL_TURN') or message.startswith('ACK_COMPLETE_TURN'):
                 self.currentTurnID = None
                 self.labelTurno.setText("-")
@@ -494,28 +513,6 @@ class MainWindow(QMainWindow):
         except:
             logging.exception('Exception sending turn completion')
             traceback.print_exc()
-    
-    def reassign_turn(self):
-        if self.currentTurnID:
-            selection = QMessageBox()
-            selection.setWindowTitle('Reasignar turno')
-            selection.setText('¿A qué servicio desea reasignar el turno?')
-            btnAsesoria = selection.addButton('Asesoría', QMessageBox.ButtonRole.AcceptRole)
-            btnCaja = selection.addButton('Caja', QMessageBox.ButtonRole.AcceptRole)
-            btnCobranza = selection.addButton('Cobranza', QMessageBox.ButtonRole.AcceptRole)
-            btnCartera = selection.addButton('Cartera', QMessageBox.ButtonRole.AcceptRole)
-            btnCancel = QPushButton()
-            selection.addButton(btnCancel, QMessageBox.ButtonRole.RejectRole)
-            btnCancel.hide()
-            selection.exec()
-            if selection.clickedButton() == btnAsesoria:
-                print('asesoria clicked')
-            elif selection.clickedButton() == btnCaja:
-                print('caja')
-            elif selection.clickedButton() == btnCobranza:
-                print('')
-            elif selection.clickedButton() == btnCartera:
-                print('fdas')
 
     def cancel_current_turn(self):
         if self.currentTurnID:
@@ -537,6 +534,37 @@ class MainWindow(QMainWindow):
                     logging.exception('Exception canceling current turn')
                     traceback.print_exc()
                     self.setup_rabbitmq()
+    
+    def reassign_pressed(self):
+        if self.currentTurnID:
+            selection = QMessageBox()
+            selection.setWindowTitle('Reasignar turno')
+            selection.setText('¿A qué servicio desea reasignar el turno?')
+            btnAsesoria = selection.addButton('Asesoría', QMessageBox.ButtonRole.AcceptRole)
+            btnCaja = selection.addButton('Caja', QMessageBox.ButtonRole.AcceptRole)
+            btnCobranza = selection.addButton('Cobranza', QMessageBox.ButtonRole.AcceptRole)
+            btnCartera = selection.addButton('Cartera', QMessageBox.ButtonRole.AcceptRole)
+            btnCancel = QPushButton()
+            selection.addButton(btnCancel, QMessageBox.ButtonRole.RejectRole)
+            btnCancel.hide()
+            selection.exec()
+            if selection.clickedButton() == btnAsesoria:
+                self.reassign_turn('AS')
+            elif selection.clickedButton() == btnCaja:
+                self.reassign_turn('CA')
+            elif selection.clickedButton() == btnCobranza:
+                self.reassign_turn('CO')
+            elif selection.clickedButton() == btnCartera:
+                self.reassign_turn('CT')
+    
+    def reassign_turn(self, queue):
+        try:
+            msgBody = f'REASSIGN_TURN:{self.currentTurnID}:{queue}:{self.station}:{self.userID}:{self.id}'.encode('utf-8')
+            self.channel.basic_publish(
+                exchange='digiturno_direct',
+                routing_key='server_command',
+                body=msgBody)
+        except: logging.exception('Exception sending turn reassignment')
     
     def release_station(self):
         try:

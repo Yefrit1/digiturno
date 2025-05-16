@@ -89,7 +89,6 @@ class Digiturno(QMainWindow):
         service (Str): Service type
         number (int): Turn number
         customer (Str): Customer name"""
-        "self.queue = {'AS': [], 'CA': [], 'CO': [], 'CT': []} #delete later"
         self.stations = {}
         """Keys (Str): Station name (Caja 1...)
         Elements: funcionarioID (int): Staff member ID"""
@@ -102,11 +101,6 @@ class Digiturno(QMainWindow):
         estacion (Str): Station passed by funcionario
         turno (Str): Turn information: service type and number
         nombre (Str): Customer's name"""
-        "self.orderedQueue = []"
-        # Delete later
-        """Tuples (servicio, numero):
-        servicio (Str): Service type
-        numero (int): Turn number"""
         self.init_ui()
         self.init_db()
         self.setup_rabbitmq()
@@ -165,21 +159,6 @@ class Digiturno(QMainWindow):
         self.gridLayout.setContentsMargins(
             self.screen_width(3), self.screen_height(5),
             self.screen_width(3), 0)
-        # HBox for waiting
-        '''self.waitLayout = QHBoxLayout()
-        self.waitLayout.setContentsMargins(
-            self.screen_width(3), 0,
-            self.screen_width(3), self.screen_height(4))
-        self.waitLayout.setSpacing(self.screen_width(1))
-        self.waitLayout.setAlignment(Qt.AlignBottom | Qt.AlignLeft)
-        self.waitHeader = QHBoxLayout()
-        self.waitLabels = QHBoxLayout()
-        self.waitLayout.addLayout(self.waitHeader)
-        self.waitLayout.addLayout(self.waitLabels)
-
-        labelQueue = QLabel("En cola:")
-        self.style_header(labelQueue)
-        self.waitHeader.addWidget(labelQueue)'''
         # Turn display box
         self.turnAlert = TurnAlert(self)
         self.position_turn_alert()
@@ -205,12 +184,13 @@ class Digiturno(QMainWindow):
                 _, funID, turnID, queue, stat, rk = command.split(':')
                 self.next_turn(int(funID), int(turnID), queue, stat, rk)
             
-            elif command.startswith('REASSIGN_TURN:'):
-                _, turnID, newService = command.split('')
-            
             elif command.startswith('CANCEL_TURN:'): # Producer: funcionario.py
                 _, turnID, station, funcionario, rk = command.split(':')
                 self.cancel_turn(int(turnID), station, int(funcionario), rk)
+                
+            elif command.startswith('REASSIGN_TURN:'):
+                _, turnID, queue, station, funcionario, rk = command.split(':')
+                self.reassign_turn(turnID, queue, station, funcionario, rk)
             
             elif command.startswith('COMPLETE_TURN:'): # Producer: funcionario.py
                 _, station, rk = command.split(':')
@@ -288,13 +268,10 @@ class Digiturno(QMainWindow):
                 turnID = cursor.lastrowid
                 conn.commit()
                 self.queues[servicio].append(Turn(
-                    id=turnID,
+                    id=int(turnID),
                     service=servicio,
-                    number=number,
+                    number=int(number),
                     customer=customer))
-                "self.queue[servicio].append(number)"
-                "self.orderedQueue.append((servicio, number))"
-                #self.update_waiting() Delete later
                 self.broadcast_update(f"NEW_TURN:{turnID}:{servicio}-{number}:{servicio}:{customer}")
             except:
                 logging.exception('Exception when trying to create new turn')
@@ -310,7 +287,7 @@ class Digiturno(QMainWindow):
         estacion (Str): Station from where funcionario calls
         rk (Str): Routing key to send ack"""
         for turnInstance in self.queues[queue]:
-            if turnInstance.id == turnID:
+            if turnInstance.id == int(turnID):
                 service = turnInstance.service
                 number = turnInstance.number
                 turn = f'{service}-{number}'
@@ -341,13 +318,11 @@ class Digiturno(QMainWindow):
                     customer=customer))
                 
                 self.update_serving()
-                self.update_waiting()
                 self.show_alert(service, number, station, customer)
                 self.broadcast_update(f"CALLED:{turnID}:{queue}:{funcionario}")
             except:
                 logging.exception('Exception when trying to call next turn')
                 traceback.print_exc()
-                print("^Error calling next turn. Read traceback above^")
                 conn.rollback()
 
     def cancel_turn(self, turnID, station, funcionario, rk):
@@ -380,8 +355,43 @@ class Digiturno(QMainWindow):
                 except:
                     logging.exception('Exception when trying to cancel turn')
                     traceback.print_exc()
-                    print(f"^Error canceling turn for {station}. Read traceback above^")
                     conn.rollback()
+                    
+    def reassign_turn(self, turnID, queue, station, funcionario, rk):
+        try:
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    UPDATE funcionarios
+                    SET atendidos_hoy = atendidos_hoy - 1,
+                        atendidos = atendidos - 1
+                    WHERE id = ?''', (funcionario,))
+                cursor.execute('''
+                    UPDATE turnos
+                    SET funcionario_id = ?,
+                        cola = ?,
+                        estado = 'pendiente',
+                        llamado = NULL
+                    WHERE id = ?
+                    ''', (funcionario, queue, turnID))
+                self.servingStations[station] = None
+                for tuple in self.orderedServing:
+                    if tuple[0] == int(turnID):
+                        s, n = tuple[2].split('-')
+                        customer = tuple[3]
+                        self.queues[queue].append(Turn(
+                            id=int(turnID),
+                            service=s,
+                            number=int(n),
+                            customer=customer))
+                        self.orderedServing.remove(tuple)
+                        break
+                    print(f'New queue:\n{self.queues}')
+                self.update_serving()
+                self.broadcast_update(f'ACK_REASSIGN_TURN:{turnID}:{s}-{n}:{queue}:{customer}:{rk}')
+        except:
+            traceback.print_exc()
+            logging.exception('Exception reassigning turn')
     
     def complete_turn(self, station, rk):
         """Remove current serving turn from display. Parameters:
@@ -432,37 +442,6 @@ class Digiturno(QMainWindow):
                 item.widget().deleteLater()
                 item.widget().setGraphicsEffect(None)
                 layout.removeItem(item)
-    
-    def update_waiting(self):
-        """Update displayed turns in queue"""
-        # Delete later
-        '''self.clear_waitLabels()
-        counter = 0
-        for servicio, numero in self.orderedQueue:
-            if counter < 5:
-                nombre = self.queueNames.get(f'{servicio}-{numero}', "NA")
-                turn = QLabel()
-                self.style_label(turn)
-                turn.setText(f"""
-                    <div style='text-align: center; line-height: 0.9;'>
-                        <div style='font-size: {self.screen_width(3.6)}px;'>{servicio}-{numero}</div>
-                        <div style='font-size: {self.screen_width(1.6)}px; font-weight: normal;'>{nombre}</div>
-                    </div>""")
-                turn.setFixedWidth(self.screen_width(13))
-                self.waitLabels.addWidget(turn)
-            else: print("No more space for waiting labels")
-            counter += 1'''
-        pass
-    
-    def clear_waitLabels(self):
-        """Clear UI from waiting turns. Removes widgets from waitLabels"""
-        # Delete later
-        '''while self.waitLabels.count():
-            child = self.waitLabels.takeAt(0)
-            if child.widget():
-                child.widget().setGraphicsEffect(None)
-                child.widget().deleteLater()'''
-        pass
 
     def load_pending(self):
         """Load pending turns created today from DB"""
@@ -478,13 +457,10 @@ class Digiturno(QMainWindow):
             ''')
             for turnID, service, number, queue, customer in cursor.fetchall():
                 self.queues[queue].append(Turn(
-                    id = turnID,
+                    id = int(turnID),
                     service = service,
-                    number = number,
+                    number = int(number),
                     customer = customer))
-                "self.orderedQueue.append((servicio, numero))"
-        'print(f"Ordered pending turns: {self.orderedQueue}")'
-        self.update_waiting()
         
     def load_stations(self):
         """Load station names from DB"""
@@ -493,9 +469,9 @@ class Digiturno(QMainWindow):
             cursor.execute('SELECT nombre FROM estaciones')
             result = cursor.fetchall()
             self.stations = {nom[0]: None for nom in result}
-        print(f'Stations:\n{self.stations}')
     
     def serialize_queues(self) -> dict:
+        "Return dict of queues converted from Turn instances to dicts"
         queues = {queue:[turn.to_dict() for turn in turns]
                   for queue, turns in self.queues.items()}
         return queues
@@ -542,7 +518,6 @@ class Digiturno(QMainWindow):
                         stop:0 #85A947, stop:1 #3E7B27
                     );
                     font-size: {self.screen_width(1.8)}px;}}"""
-            #label.setFixedWidth(self.screen_width(13))
         label.setStyleSheet(styleSheet)
         label.setAlignment(Qt.AlignCenter)
         labelShadow = QGraphicsDropShadowEffect(label, blurRadius=5)
@@ -595,7 +570,7 @@ class Digiturno(QMainWindow):
     
     def init_db(self):
         """Create DB tables and placeholder values. Checks for daily reset"""
-        self.conn = sqlite3.connect('digiturno.db')
+        self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
         self.cursor.execute("PRAGMA foreign_keys = ON")
         try:
