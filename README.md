@@ -39,8 +39,8 @@ Additionally, all programs require the .env file with the following structure:
 
 - `RABBITMQ_USER=your_user`
 - `RABBITMQ_PASS=your_password`  
-- `LOCAL_IP=192.168.1.100`  
-- `PUBLIC_IP=your.domain.com`  
+- `LOCAL_IP=your_server's_local_ip`  
+- `PUBLIC_IP=your_server's_public_ip`  
 - `PORT=5672` *(Default RabbitMQ port)*  
 - `B2_KEY_ID=your_backblaze_key`  
 - `B2_APP_KEY=your_backblaze_appkey`  
