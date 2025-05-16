@@ -1,4 +1,4 @@
-import sys, os, pika, json, traceback, threading, csv, logging
+import sys, os, pika, json, traceback, threading, csv, logging, math
 from PyQt5.QtGui import QCloseEvent
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
@@ -236,7 +236,16 @@ class MainWindow(QMainWindow):
             with open(filePath, 'w', newline='', encoding='utf-8-sig') as f:
                 writer = csv.writer(f)
                 writer.writerow(["Turno", "Cliente", "Asociado", "Creado", "Llamado", "Espera", "Funcionario"])
-                writer.writerows(self.rows)
+                for row in self.rows:
+                    row = list(row)
+                    if isinstance(row[5], str) and row[5].count(':') == 1:
+                        m, s = row[5].split(':')
+                        if int(m) > 60:
+                            h = math.floor(int(m)/60)
+                            m = int(m) - (h*60)
+                        else : h = 0
+                        row[5] = f'{h}:{m}:{s}'
+                    writer.writerow(row)
         
     def setup_rabbitmq(self):
         credentials = pika.PlainCredentials(

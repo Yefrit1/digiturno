@@ -1,4 +1,4 @@
-import pika, json, os, sqlite3, traceback, csv, sys, logging
+import pika, json, os, sqlite3, traceback, csv, sys, logging, math
 from logging.handlers import RotatingFileHandler
 from b2sdk.v2 import B2Api, InMemoryAccountInfo
 from datetime import datetime, timedelta
@@ -163,7 +163,16 @@ class Reporter:
         with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.writer(f)
             writer.writerow(["Turno", "Cliente", "Creado", "Llamado", "Espera", "Funcionario"])
-            writer.writerows(rows)
+            for row in rows:
+                row = list(row)
+                if isinstance(row[5], str) and row[5].count(':') == 1:
+                    m, s = row[5].split(':')
+                    if int(m) > 60:
+                        h = math.floor(int(m)/60)
+                        m = int(m) - (h*60)
+                    else : h = 0
+                    row[5] = f'{h}:{m}:{s}'
+                writer.writerow(row)
         print(f'[✓] Report saved to {filepath}')
         
         url = self.upload_to_b2(filepath, filename)
