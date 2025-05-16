@@ -276,7 +276,6 @@ class Digiturno(QMainWindow):
             except:
                 logging.exception('Exception when trying to create new turn')
                 traceback.print_exc()
-                print("^Error handling new turn. Read traceback above^")
                 conn.rollback()
     
     def next_turn(self, funcionario, turnID, queue, station, rk):
@@ -368,12 +367,12 @@ class Digiturno(QMainWindow):
                     WHERE id = ?''', (funcionario,))
                 cursor.execute('''
                     UPDATE turnos
-                    SET funcionario_id = ?,
+                    SET funcionario_id = NULL,
                         cola = ?,
                         estado = 'pendiente',
                         llamado = NULL
                     WHERE id = ?
-                    ''', (funcionario, queue, turnID))
+                    ''', (queue, turnID))
                 self.servingStations[station] = None
                 for tuple in self.orderedServing:
                     if tuple[0] == int(turnID):
@@ -390,8 +389,8 @@ class Digiturno(QMainWindow):
                 self.update_serving()
                 self.broadcast_update(f'ACK_REASSIGN_TURN:{turnID}:{s}-{n}:{queue}:{customer}:{rk}')
         except:
-            traceback.print_exc()
             logging.exception('Exception reassigning turn')
+            traceback.print_exc()
     
     def complete_turn(self, station, rk):
         """Remove current serving turn from display. Parameters:
@@ -625,6 +624,7 @@ class Digiturno(QMainWindow):
                     last_reset DATE NOT NULL)''')
             self.conn.commit()
         except Exception as e:
+            self.logging.exception('Exception creating DB')
             print(f"Error creating DB: {e}")
             self.conn.rollback()
         try:
@@ -710,12 +710,14 @@ class Digiturno(QMainWindow):
         """Send direct acknowledgement to funcionario after canceling turn
         rk (Str): Routing key to trace back funcionario"""
         try:
+            msgBody = f'ACK_CANCEL_TURN'
             with self.channelLock:
                 self.channel.basic_publish(
                     exchange='ack_exchange',
                     routing_key=str(rk),
-                    body=f'ACK_CANCEL_TURN',
+                    body=msgBody,
                     properties=pika.BasicProperties(delivery_mode=2))
+                print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_cancel_turn method')
             traceback.print_exc()
@@ -724,12 +726,14 @@ class Digiturno(QMainWindow):
         """Send direct acknowledgement to funcionario after completing current turn
         rk (Str): Routing key to trace back funcionario"""
         try:
+            msgBody = f'ACK_COMPLETE_TURN'
             with self.channelLock:
                 self.channel.basic_publish(
                     exchange='ack_exchange',
                     routing_key=str(rk),
-                    body=f'ACK_COMPLETE_TURN',
+                    body=msgBody,
                     properties=pika.BasicProperties(delivery_mode=2))
+            print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_complete_turn method')
             traceback.print_exc()
@@ -745,8 +749,10 @@ class Digiturno(QMainWindow):
                     routing_key=str(rk),
                     body=msgBody,
                     properties=pika.BasicProperties(delivery_mode=2))
-            print(f'Ack sent with queue:\n{self.queues}')
-        except: logging.exception('Exception sending ack_queue_request')
+                print(f'[✓] Sent msg:\n{msgBody}\n')
+        except:
+            logging.exception('Exception sending ack_queue_request')
+            traceback.print_exc
     
     def ack_stations_request(self, rk):
         """Send direct acknowledgement to funcionario with stations available
@@ -755,12 +761,12 @@ class Digiturno(QMainWindow):
         msgBody = f'ACK_STATIONS_REQUEST:{json.dumps(stations)}'.encode('utf-8')
         try:
             with self.channelLock:
-                print(f'Sending msg with stations:\n{stations}')
                 self.channel.basic_publish(
                     exchange='ack_exchange',
                     routing_key=str(rk),
                     body=msgBody,
                     properties=pika.BasicProperties(delivery_mode=2))
+                print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_stations_request method')
             traceback.print_exc()
@@ -793,12 +799,15 @@ class Digiturno(QMainWindow):
                 else: userID = nombre = station = 'NO_ACCESS' # If credentials are valid but user is blocked
             else: userID = nombre = station = 'NOT_FOUND' # If credentials don't match any user
         with self.channelLock:
-            self.channel.basic_publish(
-                exchange='ack_exchange',
-                routing_key=str(rk),
-                body=f'ACK_LOGIN_REQUEST:{userID}:{nombre}:{station}',
-                properties=pika.BasicProperties(delivery_mode=2))
-        print(f"login request ack sent, user ID: {userID}, routing key: {rk}")
+            try:
+                msgBody = f'ACK_LOGIN_REQUEST:{userID}:{nombre}:{station}'
+                self.channel.basic_publish(
+                    exchange='ack_exchange',
+                    routing_key=str(rk),
+                    body=f'ACK_LOGIN_REQUEST:{userID}:{nombre}:{station}',
+                    properties=pika.BasicProperties(delivery_mode=2))
+                print(f'[✓] Sent msg:\n{msgBody}\n')
+            except: logging.exception('Exception sending ack_login_request')
     
     def ack_admin_login_request(self, username, password):
         """Validate admin credentials and send acknowledgement with the result. Parameters:
@@ -820,13 +829,14 @@ class Digiturno(QMainWindow):
             else: funID = 'NO_ACCESS'
         else: funID = 'NOT_FOUND'
         try:
+            msgBody = f'ACK_LOGIN_REQUEST:{funID}:{isAdm}'
             with self.channelLock:
                 self.channel.basic_publish(
                     exchange='ack_exchange',
                     routing_key='admin',
                     body=f'ACK_LOGIN_REQUEST:{funID}:{isAdm}',
                     properties=pika.BasicProperties(delivery_mode=2))
-            print(f'Admin login ack sent\nfunID: {funID} , isAdm: {isAdm}')
+                print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_admin_login_request method')
             traceback.print_exc()
@@ -847,13 +857,14 @@ class Digiturno(QMainWindow):
                 nom = 'NULL'
                 asc = 0
         try:
+            msgBody = f'ACK_CUSTOMER_ID_CHECK:{reg}:{nom}:{asc}'
             with self.channelLock:
                 self.channel.basic_publish(
                     exchange='ack_exchange',
                     routing_key='user',
-                    body=f'ACK_CUSTOMER_ID_CHECK:{reg}:{nom}:{asc}',
+                    body=msgBody,
                     properties=pika.BasicProperties(delivery_mode=2))
-            print(f'Sent customer ID check acknowledgement\nregistered: {reg} , name: {nom} , asociado: {asc}') # Debug
+                print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_customer_ID_check method')
             traceback.print_exc()
@@ -869,13 +880,14 @@ class Digiturno(QMainWindow):
                 VALUES (?, ?, False)
             ''', (cedula, nombre))
         try:
+            msgBody = f'ACK_NEW_CUSTOMER:{cedula}:{nombre}'
             with self.channelLock:
                 self.channel.basic_publish(
                     exchange='ack_exchange',
                     routing_key='user',
-                    body=f'ACK_NEW_CUSTOMER:{cedula}:{nombre}',
+                    body=msgBody,
                     properties=pika.BasicProperties(delivery_mode=2))
-            print(f'New customer registered\nID: {cedula} , name: {nombre}')
+                print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_new_customer method')
             traceback.print_exc()
@@ -888,13 +900,14 @@ class Digiturno(QMainWindow):
             cursor.execute('SELECT servicio, MAX(numero) FROM turnos WHERE DATE(creado) = ? GROUP BY servicio', (fechaHoy,))
             result = cursor.fetchall()
         try:
+            msgBody = json.dumps(result)
             with self.channelLock:
                 self.channel.basic_publish(
                     exchange='ack_exchange',
                     routing_key='user',
-                    body=json.dumps(result),
+                    body=msgBody,
                     properties=pika.BasicProperties(delivery_mode=2))
-            print(f'Sent last turns:\n{result}')
+                print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_last_turn_request method')
             traceback.print_exc()
@@ -906,13 +919,14 @@ class Digiturno(QMainWindow):
             cursor.execute("SELECT id, nombre, identificacion, usuario, contrasena, rol, estado FROM funcionarios")
             users = cursor.fetchall()
         try:
+            msgBody = json.dumps(users)
             with self.channelLock:
                 self.channel.basic_publish(
                     exchange='ack_exchange',
                     routing_key='admin',
-                    body=json.dumps(users),
+                    body=msgBody,
                     properties=pika.BasicProperties(delivery_mode=2))
-            print(f'Funcionarios list sent:\n{users}')
+                print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_funcionarios_list method')
             traceback.print_exc()
@@ -924,26 +938,27 @@ class Digiturno(QMainWindow):
                 cursor = conn.cursor()
                 for row in self.funChanged:
                     id_, nombre, identificacion, usuario, contrasena, rol, estado = row
-                    print(f'role: {rol} type {type(rol)}')
-                    print(f'status: {estado} type {type(estado)}')
                     cursor.execute('''
                         UPDATE funcionarios SET nombre = ?, identificacion = ?, usuario = ?, contrasena = ?, rol = ?, estado = ?
                         WHERE id = ?
                     ''', (nombre, identificacion, usuario, contrasena, rol, estado, id_))
             with self.channelLock:
+                msgBody = 'ACK_FUNCIONARIOS_LIST_UPDATE:good'
                 self.channel.basic_publish(
                     exchange='ack_exchange',
                     routing_key='admin',
-                    body='ACK_FUNCIONARIOS_LIST_UPDATE:good',
+                    body=msgBody,
                     properties=pika.BasicProperties(delivery_mode=2))
-            print(f'Funcionarios list updated')
+                print(f'[✓] Sent msg:\n{msgBody}\n')
         except Exception as e:
             with self.channelLock:
+                msgBody = 'ACK_FUNCIONARIOS_LIST_UPDATE:error'
                 self.channel.basic_publish(
                     exchange='ack_exchange',
                     routing_key='admin',
-                    body='ACK_FUNCIONARIOS_LIST_UPDATE:error',
+                    body=msgBody,
                     properties=pika.BasicProperties(delivery_mode=2))
+                print(f'[✓] Sent msg:\n{msgBody}\n')
             print(f'Funcionarios list not updated, error: {e}')
     
     def ack_new_funcionario(self):
@@ -957,23 +972,27 @@ class Digiturno(QMainWindow):
                 ''', (self.newFun[0], self.newFun[1], self.newFun[2], self.newFun[3], self.newFun[4], self.newFun[5]))
                 id_ = cursor.lastrowid
             try:
+                msgBody = f'ACK_NEW_FUNCIONARIO:good:{id_}:ignore'
                 with self.channelLock:
                     self.channel.basic_publish(
                         exchange='ack_exchange',
                         routing_key='admin',
-                        body=f'ACK_NEW_FUNCIONARIO:good:{id_}:ignore',
+                        body=msgBody,
                         properties=pika.BasicProperties(delivery_mode=2))
+                    print(f'[✓] Sent msg:\n{msgBody}\n')
             except:
                 logging.exception('Exception on ack_new_funcionario method')
                 traceback.print_exc()
         except sqlite3.IntegrityError as e:
             try:
+                msgBody = f'ACK_NEW_FUNCIONARIO:error:{e}'
                 with self.channelLock:
                     self.channel.basic_publish(
                         exchange='ack_exchange',
                         routing_key='admin',
-                        body=f'ACK_NEW_FUNCIONARIO:error:{e}',
+                        body=msgBody,
                         properties=pika.BasicProperties(delivery_mode=2))
+                    print(f'[✓] Sent msg:\n{msgBody}\n')
                 print(f'Error inserting new funcionario: {e}')
             except:
                 logging.exception('Exception on ack_new_funcionario method')
@@ -990,23 +1009,29 @@ class Digiturno(QMainWindow):
                         DELETE FROM funcionarios WHERE id = ?
                     ''', (int(id_),))
             with self.channelLock:
+                msgBody = f'ACK_DELETE_FUNCIONARIOS:{ids}'
                 self.channel.basic_publish(
                     exchange='ack_exchange',
                     routing_key='admin',
-                    body=f'ACK_DELETE_FUNCIONARIOS:{ids}',
+                    body=msgBody,
                     properties=pika.BasicProperties(delivery_mode=2))
-            print(f'Deleted funcionarios with ids:\n{ids}')
+                print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_delete_funcionario method')
             traceback.print_exc()
 
     def broadcast_update(self, message):
         """Send broadcast message with exchange 'digiturno_broadcast'. Sent to funcionarios"""
-        with self.channelLock:
-            self.channel.basic_publish(
-                exchange='digiturno_broadcast',
-                routing_key='',
-                body=message)
+        try:
+            with self.channelLock:
+                self.channel.basic_publish(
+                    exchange='digiturno_broadcast',
+                    routing_key='',
+                    body=message)
+                print(f'[✓] Broadcast msg:\n{message}\n')
+        except:
+            logging.exception('Exception broadcasting msg')
+            traceback.print_exc()
     
     def closeEvent(self, event):
         """Clean up on window close"""
