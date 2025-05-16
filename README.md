@@ -37,11 +37,11 @@ The following programs require these image files in the same directory:
 
 Additionally, all programs require the .env file with the following structure:
 
-RABBITMQ_USER=YOUR_USER
-RABBITMQ_PASS=YOUR_PASSWORD
-LOCAL_IP=NETWORK_LOCAL_IP
-PUBLIC_IP=NETWORK_PUBLIC_IP
-PORT=5672 (default RabbitMQ port, change if needed)
-B2_KEY_ID=BACKBLAZE_KEY_ID
-B2_APP_KEY=BACKBLAZE_APP_KEY
-B2_BUCKET=BACKBKLAZE_BUCKET_NAME
+- `RABBITMQ_USER=your_user`
+- `RABBITMQ_PASS=your_password`  
+- `LOCAL_IP=192.168.1.100`  
+- `PUBLIC_IP=your.domain.com`  
+- `PORT=5672` *(Default RabbitMQ port)*  
+- `B2_KEY_ID=your_backblaze_key`  
+- `B2_APP_KEY=your_backblaze_appkey`  
+- `B2_BUCKET=your_bucket_name`  
