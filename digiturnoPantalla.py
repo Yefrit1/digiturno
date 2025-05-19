@@ -1,4 +1,4 @@
-import sys, traceback, sqlite3, threading, pika, json, os, logging, time
+import sys, traceback, sqlite3, threading, pika, json, os, logging, time, pyttsx3
 from dataclasses import dataclass
 from dotenv import load_dotenv
 from datetime import datetime
@@ -82,6 +82,15 @@ class Digiturno(QMainWindow):
         self.setWindowTitle("Digiturno")
         self.commandLock = threading.Lock()
         self.channelLock = threading.Lock()
+        self.ttsLock = threading.Lock()
+        self.ttsEngine = pyttsx3.init()
+        voices = self.ttsEngine.getProperty('voices')
+        for voice in voices:
+            if 'spanish' in voice.name.lower() or 'español' in voice.name.lower() or 'es-mx' in voice.id.lower():
+                self.ttsEngine.setProperty('voice', voice.id)
+                break
+        self.ttsEngine.setProperty('rate', 150)
+        self.ttsEngine.setProperty('volume', 0.9)
         self.queues = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
         """Keys (Str): Service type
         Elements (Turn class): Turns with attributes:
@@ -475,7 +484,7 @@ class Digiturno(QMainWindow):
                   for queue, turns in self.queues.items()}
         return queues
 
-    def show_alert(self, servicio, numero, funcionario, nombre):
+    def show_alert(self, service, number, station, customer):
         """Show turn alert. Parameters:
         servicio (Str): Service type
         numero (int): Turn number
@@ -483,13 +492,22 @@ class Digiturno(QMainWindow):
         nombre (Str): Customer name"""
         self.turnAlert.setText(f"""
             <div style='text-align: center; line-height: 0.8;'>
-                <div style='font-size: {self.screen_width(5)}px;'>{funcionario}</div>
-                <div style='font-size: {self.screen_width(14)}px;'>{servicio}-{numero}</div>
-                <div style='font-size: {self.screen_width(4)}px;'>{nombre}</div>
+                <div style='font-size: {self.screen_width(5)}px;'>{station}</div>
+                <div style='font-size: {self.screen_width(14)}px;'>{service}-{number}</div>
+                <div style='font-size: {self.screen_width(4)}px;'>{customer}</div>
             </div>""")
         self.turnAlert.show_box()
         self.turnAlert.anim.finished.connect(self.turnAlert.hide_box)
         self.turnAlert.anim.start()
+        s1, s2 = service
+        self.tts_say(f'Turno {s1}.{s2}.{number}, por favor acérquese a {station}')
+    
+    def tts_say(self, text):
+        def speak():
+            with self.ttsLock:
+                self.ttsEngine.say(text)
+                self.ttsEngine.runAndWait()
+        threading.Thread(target=speak, daemon=True).start()
 
     def style_label(self, label, serving=False):
         """Set stylesheet, alignment and shadow effect for a label. Parameters:
