@@ -89,8 +89,7 @@ class Digiturno(QMainWindow):
             if 'spanish' in voice.name.lower() or 'español' in voice.name.lower() or 'es-mx' in voice.id.lower():
                 self.ttsEngine.setProperty('voice', voice.id)
                 break
-        self.ttsEngine.setProperty('rate', 150)
-        self.ttsEngine.setProperty('volume', 0.9)
+        self.ttsEngine.setProperty('rate', 130)
         self.queues = {'AS': [], 'CA': [], 'CO': [], 'CT': []}
         """Keys (Str): Service type
         Elements (Turn class): Turns with attributes:
