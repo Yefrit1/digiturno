@@ -1,4 +1,4 @@
-import sys, traceback, sqlite3, threading, pika, json, os, logging, time, pyttsx3
+import sys, traceback, sqlite3, threading, pika, json, os, logging, time, pyttsx3, queue
 from dataclasses import dataclass
 from dotenv import load_dotenv
 from datetime import datetime
@@ -80,6 +80,8 @@ class Digiturno(QMainWindow):
         self.screenGeometry = QApplication.primaryScreen().geometry()
         super().__init__()
         self.setWindowTitle("Digiturno")
+        self.stopEvent = threading.Event()
+        self.rabbitmqueue = queue.Queue()
         self.commandLock = threading.Lock()
         self.channelLock = threading.Lock()
         self.ttsLock = threading.Lock()
@@ -672,8 +674,11 @@ class Digiturno(QMainWindow):
         self.connection = pika.BlockingConnection(
             pika.ConnectionParameters(
                 host='localhost',
-                credentials=credentials))
+                credentials=credentials,
+                heartbeat=600,
+                blocked_connection_timeout=300))
         self.channel = self.connection.channel()
+        #self.channelC = self.connection.channel()
         
         # Direct exchange
         self.channel.exchange_declare(
@@ -693,17 +698,24 @@ class Digiturno(QMainWindow):
             exchange_type='fanout',
             durable=True)
         
-        # Server's command queue
         self.channel.queue_declare(queue='server_commands', durable=True)
         self.channel.queue_bind(
             exchange='digiturno_direct',
             queue='server_commands',
             routing_key='server_command')
         
-        # Start consuming commands
-        self.channel.basic_consume(
+        self.channel.basic_consume(queue='server_commands', on_message_callback=self.handle_msg)
+        """# Server's command queue
+        self.channelC.queue_declare(queue='server_commands', durable=True)
+        self.channelC.queue_bind(
+            exchange='digiturno_direct',
             queue='server_commands',
-            on_message_callback=self.handle_msg)
+            routing_key='server_command')
+        
+        # Start consuming commands
+        self.channelC.basic_consume(
+            queue='server_commands',
+            on_message_callback=self.handle_msg)"""
         
         # Run in background thread
         self.rabbitmq_thread = threading.Thread(
@@ -713,9 +725,31 @@ class Digiturno(QMainWindow):
     
     def start_rabbitmq_consumer(self):
         """Consume RabbitMQ messages"""
+        """try:
+            self.channelC.start_consuming()
+        except: pass"""
         try:
-            self.channel.start_consuming()
-        except: pass
+            while not self.stopEvent.is_set():
+                # Check for outbound messages (publishing)
+                try:
+                    job = self.rabbitmqueue.get(timeout=0.1)
+                    if job:
+                        props = pika.BasicProperties(delivery_mode=2) if job.get('persistent') else None
+                        self.channel.basic_publish(
+                            exchange=job['exchange'],
+                            routing_key=job['routing_key'],
+                            body=job['body'],
+                            properties=props
+                        )
+                        print(f"[✓] Sent msg:\n{job['body']}\n")
+                except queue.Empty:
+                    pass  # No publish job, keep going
+                
+                # Let pika process incoming messages
+                self.connection.process_data_events(time_limit=0.1)
+        except Exception as e:
+            logging.exception('Error in RabbitMQ thread loop')
+            traceback.print_exc()
     
     def handle_msg(self, ch, method, properties, body):
         """Handle incoming messages through RabbitMQ"""
@@ -728,13 +762,19 @@ class Digiturno(QMainWindow):
         rk (Str): Routing key to trace back funcionario"""
         try:
             msgBody = f'ACK_CANCEL_TURN'
-            with self.channelLock:
-                self.channel.basic_publish(
+            """with self.channelLock:
+                self.channelP.basic_publish(
                     exchange='ack_exchange',
                     routing_key=str(rk),
                     body=msgBody,
                     properties=pika.BasicProperties(delivery_mode=2))
-                print(f'[✓] Sent msg:\n{msgBody}\n')
+                """
+            self.rabbitmqueue.put({
+                'exchange': 'ack_exchange',
+                'routing_key': str(rk),
+                'body': msgBody,
+                'persistent': True})
+            print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_cancel_turn method')
             traceback.print_exc()
@@ -744,12 +784,17 @@ class Digiturno(QMainWindow):
         rk (Str): Routing key to trace back funcionario"""
         try:
             msgBody = f'ACK_COMPLETE_TURN'
-            with self.channelLock:
-                self.channel.basic_publish(
+            """with self.channelLock:
+                self.channelP.basic_publish(
                     exchange='ack_exchange',
                     routing_key=str(rk),
                     body=msgBody,
-                    properties=pika.BasicProperties(delivery_mode=2))
+                    properties=pika.BasicProperties(delivery_mode=2))"""
+            self.rabbitmqueue.put({
+                'exchange': 'ack_exchange',
+                'routing_key': str(rk),
+                'body': msgBody,
+                'persistent': True})
             print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_complete_turn method')
@@ -760,13 +805,18 @@ class Digiturno(QMainWindow):
         rk (Str): Routing key to trace back funcionario"""
         try:
             msgBody = json.dumps(self.serialize_queues()).encode('utf-8')
-            with self.channelLock:
-                self.channel.basic_publish(
+            """with self.channelLock:
+                self.channelP.basic_publish(
                     exchange='ack_exchange',
                     routing_key=str(rk),
                     body=msgBody,
-                    properties=pika.BasicProperties(delivery_mode=2))
-                print(f'[✓] Sent msg:\n{msgBody}\n')
+                    properties=pika.BasicProperties(delivery_mode=2))"""
+            self.rabbitmqueue.put({
+                'exchange': 'ack_exchange',
+                'routing_key': str(rk),
+                'body': msgBody,
+                'persistent': True})
+            print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception sending ack_queue_request')
             traceback.print_exc
@@ -775,15 +825,20 @@ class Digiturno(QMainWindow):
         """Send direct acknowledgement to funcionario with stations available
         rk (Str): Routing key to trace back funcionario"""
         stations = [name for name, user in self.stations.items() if user is None]
-        msgBody = f'ACK_STATIONS_REQUEST:{json.dumps(stations)}'.encode('utf-8')
+        msgBody = f'ACK_STATIONS_REQUEST:{json.dumps(stations)}'
         try:
-            with self.channelLock:
-                self.channel.basic_publish(
+            """with self.channelLock:
+                self.channelP.basic_publish(
                     exchange='ack_exchange',
                     routing_key=str(rk),
                     body=msgBody,
-                    properties=pika.BasicProperties(delivery_mode=2))
-                print(f'[✓] Sent msg:\n{msgBody}\n')
+                    properties=pika.BasicProperties(delivery_mode=2))"""
+            self.rabbitmqueue.put({
+                'exchange': 'ack_exchange',
+                'routing_key': str(rk),
+                'body': msgBody,
+                'persistent': True})
+            print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_stations_request method')
             traceback.print_exc()
@@ -815,16 +870,21 @@ class Digiturno(QMainWindow):
                     else: userID = nombre = station = 'STATION_BUSY'
                 else: userID = nombre = station = 'NO_ACCESS' # If credentials are valid but user is blocked
             else: userID = nombre = station = 'NOT_FOUND' # If credentials don't match any user
-        with self.channelLock:
-            try:
-                msgBody = f'ACK_LOGIN_REQUEST:{userID}:{nombre}:{station}'
-                self.channel.basic_publish(
+        try:
+            msgBody = f'ACK_LOGIN_REQUEST:{userID}:{nombre}:{station}'
+            """with self.channelLock:
+                self.channelP.basic_publish(
                     exchange='ack_exchange',
                     routing_key=str(rk),
-                    body=f'ACK_LOGIN_REQUEST:{userID}:{nombre}:{station}',
-                    properties=pika.BasicProperties(delivery_mode=2))
-                print(f'[✓] Sent msg:\n{msgBody}\n')
-            except: logging.exception('Exception sending ack_login_request')
+                    body=msgBody,
+                    properties=pika.BasicProperties(delivery_mode=2))"""
+            self.rabbitmqueue.put({
+                'exchange': 'ack_exchange',
+                'routing_key': str(rk),
+                'body': msgBody,
+                'persistent': True})
+            print(f'[✓] Sent msg:\n{msgBody}\n')
+        except: logging.exception('Exception sending ack_login_request')
     
     def ack_admin_login_request(self, username, password):
         """Validate admin credentials and send acknowledgement with the result. Parameters:
@@ -847,13 +907,18 @@ class Digiturno(QMainWindow):
         else: funID = 'NOT_FOUND'
         try:
             msgBody = f'ACK_LOGIN_REQUEST:{funID}:{isAdm}'
-            with self.channelLock:
-                self.channel.basic_publish(
+            """with self.channelLock:
+                self.channelP.basic_publish(
                     exchange='ack_exchange',
                     routing_key='admin',
-                    body=f'ACK_LOGIN_REQUEST:{funID}:{isAdm}',
-                    properties=pika.BasicProperties(delivery_mode=2))
-                print(f'[✓] Sent msg:\n{msgBody}\n')
+                    body=msgBody,
+                    properties=pika.BasicProperties(delivery_mode=2))"""
+            self.rabbitmqueue.put({
+                'exchange': 'ack_exchange',
+                'routing_key': 'admin',
+                'body': msgBody,
+                'persistent': True})
+            print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_admin_login_request method')
             traceback.print_exc()
@@ -875,13 +940,18 @@ class Digiturno(QMainWindow):
                 asc = 0
         try:
             msgBody = f'ACK_CUSTOMER_ID_CHECK:{reg}:{nom}:{asc}'
-            with self.channelLock:
-                self.channel.basic_publish(
+            """with self.channelLock:
+                self.channelP.basic_publish(
                     exchange='ack_exchange',
                     routing_key='user',
                     body=msgBody,
-                    properties=pika.BasicProperties(delivery_mode=2))
-                print(f'[✓] Sent msg:\n{msgBody}\n')
+                    properties=pika.BasicProperties(delivery_mode=2))"""
+            self.rabbitmqueue.put({
+                'exchange': 'ack_exchange',
+                'routing_key': 'user',
+                'body': msgBody,
+                'persistent': True})
+            print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_customer_ID_check method')
             traceback.print_exc()
@@ -898,13 +968,18 @@ class Digiturno(QMainWindow):
             ''', (cedula, nombre))
         try:
             msgBody = f'ACK_NEW_CUSTOMER:{cedula}:{nombre}'
-            with self.channelLock:
-                self.channel.basic_publish(
+            """with self.channelLock:
+                self.channelP.basic_publish(
                     exchange='ack_exchange',
                     routing_key='user',
                     body=msgBody,
-                    properties=pika.BasicProperties(delivery_mode=2))
-                print(f'[✓] Sent msg:\n{msgBody}\n')
+                    properties=pika.BasicProperties(delivery_mode=2))"""
+            self.rabbitmqueue.put({
+                'exchange': 'ack_exchange',
+                'routing_key': 'user',
+                'body': msgBody,
+                'persistent': True})
+            print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_new_customer method')
             traceback.print_exc()
@@ -918,13 +993,18 @@ class Digiturno(QMainWindow):
             result = cursor.fetchall()
         try:
             msgBody = json.dumps(result)
-            with self.channelLock:
-                self.channel.basic_publish(
+            """with self.channelLock:
+                self.channelP.basic_publish(
                     exchange='ack_exchange',
                     routing_key='user',
                     body=msgBody,
-                    properties=pika.BasicProperties(delivery_mode=2))
-                print(f'[✓] Sent msg:\n{msgBody}\n')
+                    properties=pika.BasicProperties(delivery_mode=2))"""
+            self.rabbitmqueue.put({
+                'exchange': 'ack_exchange',
+                'routing_key': 'user',
+                'body': msgBody,
+                'persistent': True})
+            print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_last_turn_request method')
             traceback.print_exc()
@@ -937,13 +1017,18 @@ class Digiturno(QMainWindow):
             users = cursor.fetchall()
         try:
             msgBody = json.dumps(users)
-            with self.channelLock:
-                self.channel.basic_publish(
+            """with self.channelLock:
+                self.channelP.basic_publish(
                     exchange='ack_exchange',
                     routing_key='admin',
                     body=msgBody,
-                    properties=pika.BasicProperties(delivery_mode=2))
-                print(f'[✓] Sent msg:\n{msgBody}\n')
+                    properties=pika.BasicProperties(delivery_mode=2))"""
+            self.rabbitmqueue.put({
+                'exchange': 'ack_exchange',
+                'routing_key': 'admin',
+                'body': msgBody,
+                'persistent': True})
+            print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_funcionarios_list method')
             traceback.print_exc()
@@ -959,23 +1044,33 @@ class Digiturno(QMainWindow):
                         UPDATE funcionarios SET nombre = ?, identificacion = ?, usuario = ?, contrasena = ?, rol = ?, estado = ?
                         WHERE id = ?
                     ''', (nombre, identificacion, usuario, contrasena, rol, estado, id_))
-            with self.channelLock:
-                msgBody = 'ACK_FUNCIONARIOS_LIST_UPDATE:good'
-                self.channel.basic_publish(
+            msgBody = 'ACK_FUNCIONARIOS_LIST_UPDATE:good'
+            """with self.channelLock:
+                self.channelP.basic_publish(
                     exchange='ack_exchange',
                     routing_key='admin',
                     body=msgBody,
-                    properties=pika.BasicProperties(delivery_mode=2))
-                print(f'[✓] Sent msg:\n{msgBody}\n')
+                    properties=pika.BasicProperties(delivery_mode=2))"""
+            self.rabbitmqueue.put({
+                'exchange': 'ack_exchange',
+                'routing_key': 'admin',
+                'body': msgBody,
+                'persistent': True})
+            print(f'[✓] Sent msg:\n{msgBody}\n')
         except Exception as e:
-            with self.channelLock:
-                msgBody = 'ACK_FUNCIONARIOS_LIST_UPDATE:error'
-                self.channel.basic_publish(
+            msgBody = 'ACK_FUNCIONARIOS_LIST_UPDATE:error'
+            """with self.channelLock:
+                self.channelP.basic_publish(
                     exchange='ack_exchange',
                     routing_key='admin',
                     body=msgBody,
-                    properties=pika.BasicProperties(delivery_mode=2))
-                print(f'[✓] Sent msg:\n{msgBody}\n')
+                    properties=pika.BasicProperties(delivery_mode=2))"""
+            self.rabbitmqueue.put({
+                'exchange': 'ack_exchange',
+                'routing_key': 'admin',
+                'body': msgBody,
+                'persistent': True})
+            print(f'[✓] Sent msg:\n{msgBody}\n')
             print(f'Funcionarios list not updated, error: {e}')
     
     def ack_new_funcionario(self):
@@ -990,26 +1085,36 @@ class Digiturno(QMainWindow):
                 id_ = cursor.lastrowid
             try:
                 msgBody = f'ACK_NEW_FUNCIONARIO:good:{id_}:ignore'
-                with self.channelLock:
-                    self.channel.basic_publish(
+                """with self.channelLock:
+                    self.channelP.basic_publish(
                         exchange='ack_exchange',
                         routing_key='admin',
                         body=msgBody,
-                        properties=pika.BasicProperties(delivery_mode=2))
-                    print(f'[✓] Sent msg:\n{msgBody}\n')
+                        properties=pika.BasicProperties(delivery_mode=2))"""
+                self.rabbitmqueue.put({
+                    'exchange': 'ack_exchange',
+                    'routing_key': 'admin',
+                    'body': msgBody,
+                    'persistent': True})
+                print(f'[✓] Sent msg:\n{msgBody}\n')
             except:
                 logging.exception('Exception on ack_new_funcionario method')
                 traceback.print_exc()
         except sqlite3.IntegrityError as e:
             try:
                 msgBody = f'ACK_NEW_FUNCIONARIO:error:{e}'
-                with self.channelLock:
-                    self.channel.basic_publish(
+                """with self.channelLock:
+                    self.channelP.basic_publish(
                         exchange='ack_exchange',
                         routing_key='admin',
                         body=msgBody,
-                        properties=pika.BasicProperties(delivery_mode=2))
-                    print(f'[✓] Sent msg:\n{msgBody}\n')
+                        properties=pika.BasicProperties(delivery_mode=2))"""
+                self.rabbitmqueue.put({
+                    'exchange': 'ack_exchange',
+                    'routing_key': 'admin',
+                    'body': msgBody,
+                    'persistent': True})
+                print(f'[✓] Sent msg:\n{msgBody}\n')
                 print(f'Error inserting new funcionario: {e}')
             except:
                 logging.exception('Exception on ack_new_funcionario method')
@@ -1025,14 +1130,19 @@ class Digiturno(QMainWindow):
                     cursor.execute('''
                         DELETE FROM funcionarios WHERE id = ?
                     ''', (int(id_),))
-            with self.channelLock:
-                msgBody = f'ACK_DELETE_FUNCIONARIOS:{ids}'
-                self.channel.basic_publish(
+            msgBody = f'ACK_DELETE_FUNCIONARIOS:{ids}'
+            """with self.channelLock:
+                self.channelP.basic_publish(
                     exchange='ack_exchange',
                     routing_key='admin',
                     body=msgBody,
-                    properties=pika.BasicProperties(delivery_mode=2))
-                print(f'[✓] Sent msg:\n{msgBody}\n')
+                    properties=pika.BasicProperties(delivery_mode=2))"""
+            self.rabbitmqueue.put({
+                'exchange': 'ack_exchange',
+                'routing_key': 'admin',
+                'body': msgBody,
+                'persistent': True})
+            print(f'[✓] Sent msg:\n{msgBody}\n')
         except:
             logging.exception('Exception on ack_delete_funcionario method')
             traceback.print_exc()
@@ -1040,32 +1150,49 @@ class Digiturno(QMainWindow):
     def broadcast_update(self, message):
         """Send broadcast message with exchange 'digiturno_broadcast'. Sent to funcionarios"""
         try:
-            with self.channelLock:
-                self.channel.basic_publish(
+            """with self.channelLock:
+                self.channelP.basic_publish(
                     exchange='digiturno_broadcast',
                     routing_key='',
-                    body=message)
-                print(f'[✓] Broadcast msg:\n{message}\n')
+                    body=message)"""
+            self.rabbitmqueue.put({
+                'exchange': 'digiturno_broadcast',
+                'routing_key': '',
+                'body': message})
+            print(f'[✓] Broadcast msg:\n{message}\n')
         except:
             logging.exception('Exception broadcasting msg')
             traceback.print_exc()
     
     def closeEvent(self, event):
         """Clean up on window close"""
-        if hasattr(self, 'channel') and self.channel.is_open:
+        """if hasattr(self, 'channel') and self.channel.is_open:
             try:
                 self.channel.stop_consuming()
                 time.sleep(0.2)
             except: pass
         if hasattr(self, 'rabbitmq_thread') and self.rabbitmq_thread.is_alive():
-            try: self.rabbitmq_thread.join()
+            try: self.rabbitmq_thread.join(timeout=5)
             except: pass
         if hasattr(self, 'channel') and self.channel.is_open:
             try: self.channel.close()
             except: pass
+        if hasattr(self, 'channelC') and self.channelC.is_open:
+            try: self.channelC.close()
+            except: pass
         if hasattr(self, 'connection') and self.connection.is_open:
             try: self.connection.close()
-            except: pass
+            except: pass"""
+        try:
+            if hasattr(self, 'stopEvent'):
+                self.stopEvent.set()
+                time.sleep(0.1)
+            if hasattr(self, 'rabbitmq_thread') and self.rabbitmq_thread.is_alive():
+                self.rabbitmq_thread.join(timeout=1)
+            if hasattr(self, 'connection') and self.connection.is_open:
+                self.connection.close()
+        except:
+            pass
         super().closeEvent(event)
 
 if __name__ == "__main__":
