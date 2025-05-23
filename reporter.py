@@ -162,7 +162,7 @@ class Reporter:
         filepath = os.path.join("reports", filename)
         with open(filepath, "w", newline="", encoding="utf-8-sig") as f:
             writer = csv.writer(f)
-            writer.writerow(["Turno", "Cliente", "Creado", "Llamado", "Espera", "Funcionario"])
+            writer.writerow(["Turno", "Cliente", "Asociado", "Creado", "Llamado", "Espera", "Funcionario"])
             for row in rows:
                 row = list(row)
                 if isinstance(row[5], str) and row[5].count(':') == 1:
