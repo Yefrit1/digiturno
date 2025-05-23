@@ -26,6 +26,9 @@ class MainWindow(QMainWindow):
         self.stackedWidget = QStackedWidget()
         main_layout.addWidget(self.stackedWidget)
 
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.go_to_ent)
         self.db_path = "digiturno.db"
         self.nombre = ""
         self.cedula = ""
@@ -369,6 +372,7 @@ class MainWindow(QMainWindow):
 
     def go_to_ent(self):
         """Go to first layout (CÉDULA)"""
+        self.timer.stop()
         self.stackedWidget.setCurrentIndex(0)
         self.prevIndex = 0
 
@@ -399,6 +403,7 @@ class MainWindow(QMainWindow):
         self.send_new_turn(servicio)
         self.stackedWidget.setCurrentIndex(3)
         self.prevIndex = 2
+        self.timer.start(8000)
     
     def style_label(self, label, fontSize):
         """Set stylesheet for a label. Parameters:
